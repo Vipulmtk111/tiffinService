@@ -1,0 +1,22 @@
+# ===== Secrets — NEVER commit =====
+.env
+.env.local
+*.pem
+*.key
+
+# ===== Dependencies =====
+node_modules/
+
+# ===== Large binaries (download separately, not tracked) =====
+cloudflared*.exe
+*.exe
+
+# ===== Logs / runtime =====
+*.log
+npm-debug.log*
+.pm2/
+
+# ===== OS / editor cruft =====
+.DS_Store
+Thumbs.db
+.vscode/
