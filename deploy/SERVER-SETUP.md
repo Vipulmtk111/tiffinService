@@ -1,5 +1,30 @@
 # Windows Server — pull & run
 
+## Easiest: one-click launcher
+After the repo is cloned once, just **double-click `deploy\run.bat`** (or copy `run.bat` + `run.ps1` to the desktop and double-click). It:
+1. pulls the latest code from GitHub,
+2. keeps your existing `.env` untouched (never overwrites your secrets),
+3. installs dependencies,
+4. downloads `cloudflared.exe` if missing,
+5. starts the **bot** and the **Cloudflare tunnel** each in its own window.
+
+Then copy the `https://….trycloudflare.com` URL from the tunnel window and set the Meta webhook to `https://<that-url>/webhook`.
+
+> ⚠️ A free "quick tunnel" URL **changes every time** you restart it — you'd have to update the Meta webhook each run. For a permanent URL, use a **named Cloudflare tunnel** (or a domain + reverse proxy). Ask and I'll add a named-tunnel script.
+
+### First-time clone (paste once on the server)
+```powershell
+cd $HOME
+git clone https://github.com/Vipulmtk111/tiffinService.git
+cd tiffinService
+powershell -ExecutionPolicy Bypass -File .\deploy\run.ps1
+```
+(The `git clone` needs GitHub auth for the private repo — run `gh auth login` first, or use a Personal Access Token as the password.)
+
+---
+
+## Alternative: pm2 service (no tunnel) — `server-setup.ps1`
+
 ## First time (clone)
 Open **PowerShell** on the server and run:
 ```powershell
