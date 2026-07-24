@@ -1,4 +1,4 @@
-# Tiffin Bot — one-shot server setup / update script (Windows PowerShell)
+# Tiffin Bot - one-shot server setup / update script (Windows PowerShell)
 # Run from INSIDE the cloned repo folder:
 #     powershell -ExecutionPolicy Bypass -File .\deploy\server-setup.ps1
 # It pulls latest code, installs deps, checks .env, runs the test, and (re)starts the bot with pm2.
@@ -18,10 +18,10 @@ if (Test-Path ".git") { Write-Host "Pulling latest..." -ForegroundColor Cyan; gi
 Write-Host "Installing dependencies..." -ForegroundColor Cyan
 npm install --omit=dev
 
-# 4. .env check (must be created manually — it holds secrets and is NOT in git)
+# 4. .env check (must be created manually - it holds secrets and is NOT in git)
 if (-not (Test-Path ".env")) {
   Copy-Item ".env.example" ".env"
-  Write-Host "`n.env was missing — created it from .env.example." -ForegroundColor Yellow
+  Write-Host "`n.env was missing - created it from .env.example." -ForegroundColor Yellow
   Write-Host "EDIT .env now with your real tokens/keys, then re-run this script:" -ForegroundColor Yellow
   Write-Host "    notepad .env" -ForegroundColor Yellow
   exit 1

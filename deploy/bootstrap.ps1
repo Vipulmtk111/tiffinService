@@ -1,5 +1,5 @@
 # ============================================================
-#  Tiffin Bot — BOOTSTRAP for a fresh Windows server
+#  Tiffin Bot - BOOTSTRAP for a fresh Windows server
 #  Installs Git + Node.js if missing, clones the repo, then
 #  hands off to deploy\run.ps1 (pull + start bot + tunnel).
 #
@@ -34,7 +34,7 @@ if (-not (Have git)) {
   }
   Refresh-Path
 }
-if (Have git) { Write-Host ("Git " + (git --version)) -ForegroundColor Green } else { Write-Host "Git install failed — install manually from https://git-scm.com/download/win and re-run." -ForegroundColor Red; Read-Host "Enter to exit"; exit 1 }
+if (Have git) { Write-Host ("Git " + (git --version)) -ForegroundColor Green } else { Write-Host "Git install failed - install manually from https://git-scm.com/download/win and re-run." -ForegroundColor Red; Read-Host "Enter to exit"; exit 1 }
 
 # ---------- 2. Node.js LTS ----------
 if (-not (Have node)) {
@@ -49,14 +49,14 @@ if (-not (Have node)) {
   }
   Refresh-Path
 }
-if (Have node) { Write-Host ("Node " + (node --version)) -ForegroundColor Green } else { Write-Host "Node install failed — install the LTS from https://nodejs.org and re-run." -ForegroundColor Red; Read-Host "Enter to exit"; exit 1 }
+if (Have node) { Write-Host ("Node " + (node --version)) -ForegroundColor Green } else { Write-Host "Node install failed - install the LTS from https://nodejs.org and re-run." -ForegroundColor Red; Read-Host "Enter to exit"; exit 1 }
 
 # ---------- 3. Clone or update the repo ----------
 if (-not (Test-Path (Join-Path $RepoDir ".git"))) {
   Write-Host "Cloning repo into $RepoDir ..." -ForegroundColor Cyan
   git clone $RepoUrl $RepoDir
 } else {
-  Write-Host "Repo already present — pulling latest..." -ForegroundColor Cyan
+  Write-Host "Repo already present - pulling latest..." -ForegroundColor Cyan
   Set-Location $RepoDir; git pull
 }
 

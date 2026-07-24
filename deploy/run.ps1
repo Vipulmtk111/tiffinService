@@ -1,5 +1,5 @@
 # ============================================================
-#  Tiffin Bot — one-click launcher (Windows PowerShell)
+#  Tiffin Bot - one-click launcher (Windows PowerShell)
 #  Pulls latest code, keeps your .env, installs deps, then
 #  starts the BOT and the CLOUDFLARE TUNNEL in two windows.
 #
@@ -48,12 +48,13 @@ git pull
 Write-Host "Installing dependencies..." -ForegroundColor Cyan
 npm install --omit=dev
 
-# --- 4. .env must exist (NEVER overwritten — it holds your secrets and is not in git) ---
+# --- 4. .env must exist (NEVER overwritten - it holds your secrets and is not in git) ---
 if (-not (Test-Path ".env")) {
   Copy-Item ".env.example" ".env"
-  Write-Host "`n.env was missing — created a blank one from the template." -ForegroundColor Yellow
+  Write-Host ""
+  Write-Host ".env was missing - created a blank one from the template." -ForegroundColor Yellow
   Write-Host "Fill in your real tokens/keys, then run this again:" -ForegroundColor Yellow
-  Write-Host "    notepad `"$RepoDir\.env`"" -ForegroundColor Yellow
+  Write-Host ("    notepad " + $RepoDir + "\.env") -ForegroundColor Yellow
   Read-Host "Press Enter to exit"; exit 1
 }
 Write-Host ".env present (kept as-is)" -ForegroundColor Green
