@@ -8,6 +8,16 @@
 # ============================================================
 $ErrorActionPreference = "Stop"
 
+# Keep the window open and show the error if anything fails (instead of vanishing).
+trap {
+  Write-Host "`n============================================================" -ForegroundColor Red
+  Write-Host " ERROR: $($_.Exception.Message)" -ForegroundColor Red
+  Write-Host " At: $($_.InvocationInfo.PositionMessage)" -ForegroundColor DarkYellow
+  Write-Host "============================================================" -ForegroundColor Red
+  Read-Host "Press Enter to close"
+  exit 1
+}
+
 $RepoUrl = "https://github.com/Vipulmtk111/tiffinService.git"
 
 # --- Locate the repo: use the clone this script lives in, else clone into %USERPROFILE% ---
