@@ -1,17 +1,21 @@
 /**
- * Read / set / clear the per-phone-number webhook override.
+  * Inspect the webhook wiring for the bot number, and set/clear a per-number override.
  *
  *   node scripts/waWebhook.js show
  *   node scripts/waWebhook.js set https://<something>.trycloudflare.com
  *   node scripts/waWebhook.js clear
  *
- * A phone-number-level override BEATS the app-level webhook on the Meta
- * Configuration page. If one is set and points at a dead URL, changing the
- * dashboard URL does nothing - inbound messages keep going to the dead host.
+ * `show` prints both layers and probes whichever one is actually in effect:
+ *   app-level - set on Meta -> WhatsApp -> Configuration, applies to every number
+ *   override  - optional, per number; when present it WINS over the app-level URL
+ * The probe replays Meta's verification handshake, so an unreachable tunnel or a
+ * mismatched WHATSAPP_VERIFY_TOKEN shows up immediately instead of as silence.
  *
- * `set` appends /webhook for you and uses WHATSAPP_VERIFY_TOKEN from .env, so
- * Meta's verification handshake hits the GET /webhook route in src/index.js.
+ * `set` appends /webhook for you and uses WHATSAPP_VERIFY_TOKEN from .env.
  * `clear` removes the override so the app-level webhook applies again.
+ * Note: Meta's per-number override endpoint is not reliably writable with a
+ * plain system-user token - if set/clear reports OK but `show` is unchanged,
+ * use the dashboard instead.
  *
  * Uses WHATSAPP_PHONE_NUMBER_ID from .env - make sure it is the real one.
  */
@@ -34,10 +38,16 @@ async function call(path, method = "GET", body) {
 async function show() {
   const r = await call(`${PHONE_ID}?fields=display_phone_number,status,webhook_configuration`);
   if (!r.ok) return console.error("FAILED:", r.data.error?.message), null;
-  const uri = r.data.webhook_configuration?.application || null;
-  console.log(`number   : ${r.data.display_phone_number}  (${r.data.status})`);
-  console.log(`override : ${uri || "(none - the app-level webhook applies)"}`);
-  return uri;
+  const wc = r.data.webhook_configuration || {};
+  // `application` = the app-level callback URL (Meta -> WhatsApp -> Configuration).
+  // `phone_number` = a per-number override, which wins when present.
+  const effective = wc.phone_number || wc.application || null;
+  console.log(`number    : ${r.data.display_phone_number}  (${r.data.status})`);
+  console.log(`app-level : ${wc.application || "(not set)"}`);
+  console.log(`override  : ${wc.phone_number || "(none)"}`);
+  console.log(`effective : ${effective || "(nothing - inbound messages go nowhere)"}`);
+  if (effective) await probe(effective.replace(/\/webhook$/, ""));
+  return effective;
 }
 
 /** Reachability check, so a typo or dead tunnel is caught immediately. */
