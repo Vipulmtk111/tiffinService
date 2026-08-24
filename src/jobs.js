@@ -17,15 +17,14 @@ async function menuReminder() {
   const menu = await sheets.getMenu();
   const owner = cfg.biz.ownerPhone;
   if (menu && menu.length) {
-    const list = menu.map((it) => `• ${it.name} ₹${it.price}`).join("\n");
     return wa.sendText(owner,
-      `🌅 Good morning! Aaj ka menu already set hai:\n${list}\n\n` +
+      `🌅 Good morning! Aaj ka menu already set hai:\n\n${renderMenu(menu)}\n\n` +
       `Customers ko dobara bhejne ke liye "broadcast" bhejein.\nBadalna ho toh naya menu paste kar dein.`);
   }
   return wa.sendText(owner,
     `🌅 Good morning! Aaj ka menu abhi set nahi hua.\n\n` +
-    `Bas apna aaj ka menu paste kar dein (jaise roz bhejte hain) 📋\n` +
-    `Main items + price nikaal ke confirm maangunga, phir customers ko bhej dunga. 🍱`);
+    `Bas apna aaj ka menu paste kar dein 📋 Main draft bana ke confirm maangunga, phir customers ko bhej dunga. 🍱\n\n` +
+    `Format dekhne ke liye "format" bhejein.`);
 }
 
 // 1) Menu broadcast to all customers (individual messages, ~1/sec throttle)

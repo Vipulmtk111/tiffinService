@@ -118,6 +118,67 @@ const { handleOwner } = require("../src/ownerCommands");
   ok("LLM answer sent to customer", out.some((m) => m.to === "919900000002" && /delivery/i.test(m.text || "")));
   ok("owner not bothered for a simple question", !out.some((m) => m.to === OWNER));
 
+  // ---- Tiffin menu: choice groups, no LLM anywhere in this section ----
+  console.log("\n=== OWNER: tiffin menu in the agreed format (LLM disabled) ===");
+  brain.parseMenu = async () => { throw new Error("LLM must not be called for the agreed format"); };
+  reset();
+  await handleOwner(`》SABJI..Select any
+
+👉 SUKI BHAJI
+👉 SEV TAMETA
+
+》Select Any
+1.ROTI [5]
+2.THEPLA [4]
+
+● DAL - BHAT●
+
+●FRYMS●
+
+EXTRA
+- Dhokla - 40`, null);
+  const draft = last(OWNER).text || last(OWNER).body || "";
+  ok("draft shows both choice groups", /Suki Bhaji \/ Sev Tameta/.test(draft) && /Roti x5 \/ Thepla x4/.test(draft));
+  ok("draft shows included items", /Dal Bhat, Fryms/.test(draft));
+  ok("draft offers Confirm without asking for prices", last(OWNER).type === "buttons");
+
+  reset();
+  await handleOwner("", "menu_confirm");
+  ok("tiffin base row saved with the .env price", menu.some((r) => r.category === "base" && r.price === cfg.biz.tiffinPrice));
+  ok("choice options saved under their group", menu.filter((r) => r.category === "pick:Sabji").length === 2);
+  ok("[5] read as quantity, not price", menu.some((r) => r.name === "Roti x5" && r.price === 0));
+  ok("extra keeps its own price", menu.some((r) => r.category === "extra" && r.name === "Dhokla" && r.price === 40));
+
+  console.log("\n=== CUSTOMER: tiffin ordering is pure buttons ===");
+  const C2 = "919900000003";
+  customers.set(C2, { phone: C2, name: "Kiran", address: "5 Park Rd" });
+  reset();
+  await logic.handleMessage(C2, "Kiran", "hi", null);
+  ok("greeting offers the tiffin button", (last(C2).buttons || []).some((b) => b.id === "t:start"));
+
+  reset();
+  await logic.handleMessage(C2, "Kiran", "", "t:start");
+  ok("first group asked", /Sabji/i.test(last(C2).body || "") && (last(C2).buttons || []).length === 2);
+
+  reset();
+  await logic.handleMessage(C2, "Kiran", "", "t:p:0:1");
+  ok("second group asked after first pick", /Roti/i.test(last(C2).body || ""));
+
+  reset();
+  await logic.handleMessage(C2, "Kiran", "", "t:p:1:0");
+  ok("quantity asked once all groups are picked", (last(C2).buttons || []).some((b) => b.id === "t:qty:2"));
+
+  reset();
+  await logic.handleMessage(C2, "Kiran", "", "t:qty:2");
+  ok("cart totals 2 tiffins at the tiffin price", new RegExp(`${cfg.biz.tiffinPrice * 2}`).test(last(C2).body || ""));
+
+  reset();
+  await logic.handleMessage(C2, "Kiran", "", "review");
+  await logic.handleMessage(C2, "Kiran", "", "submit");
+  const tiffinOrder = orders[orders.length - 1];
+  ok("order line names the chosen combo", /Sev Tameta \+ Roti x5/.test(tiffinOrder.items[0].name));
+  ok("order amount uses the tiffin price", tiffinOrder.amount === cfg.biz.tiffinPrice * 2);
+
   console.log(`\n${fail === 0 ? "🎉 ALL PASS" : "⚠️  SOME FAILED"} — ${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
 })();

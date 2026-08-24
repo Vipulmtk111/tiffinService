@@ -4,34 +4,47 @@ const wa = require("./whatsapp");
 const jobs = require("./jobs");
 const logic = require("./logic");
 const { freeform, parseMenu } = require("./brain");
+const menuParse = require("./menuParse");
+
+/** The agreed format, shown whenever a paste can't be read. */
+function formatHelp() {
+  return `Menu samajh nahi aaya 🙏\n\nAise bhejein 👇\n\n` +
+    `TIFFIN - ${cfg.biz.tiffinPrice}\n\n` +
+    `SABJI (any 1)\n- Suki Bhaji\n- Sev Tameta\n\n` +
+    `BREAD (any 1)\n- Roti x5\n- Thepla x4\n\n` +
+    `INCLUDED\n- Dal Bhat\n- Fryms\n\n` +
+    `EXTRA\n- Dhokla - 40\n\n` +
+    `👉 x5 = kitne milenge. EXTRA ka number = price.`;
+}
 
 // Single owner → module-level pending menu draft is fine.
-// pendingMenu = { items:[{name,category,price|null}], needPrice:[names] }
+// pendingMenu = the parsed model from menuParse.parseMenuText()
 let pendingMenu = null;
 
-function priceList(items) {
-  return items.map((it, i) => `${i + 1}. ${it.name} — ${it.price == null ? "₹?" : "₹" + it.price}`).join("\n");
+/** Extras listed without a price can't be sold — ask the owner for them. */
+function extrasNeedingPrice(m) {
+  return m.extras.filter((e) => e.price == null).map((e) => e.name);
 }
 
 async function showMenuDraft(owner) {
-  const need = pendingMenu.needPrice;
-  let msg = `📝 Aaj ka menu (draft):\n${priceList(pendingMenu.items)}`;
+  const need = extrasNeedingPrice(pendingMenu);
+  const body = `📝 Aaj ka menu (draft):\n\n${logic.renderMenuModel(pendingMenu)}`;
   if (need.length) {
-    msg += `\n\n⚠️ In items ka price chahiye: ${need.join(", ")}\n` +
-      `Reply karein jaise:\n${need[0]} 45${need[1] ? ", " + need[1] + " 60" : ""}`;
-    await wa.sendText(owner, msg);
-  } else {
-    await wa.sendButtons(owner, {
-      body: msg + `\n\nSab sahi hai? Confirm karte hi customers ko chala jayega.`,
-      buttons: [
-        { id: "menu_confirm", title: "✅ Confirm & Send" },
-        { id: "menu_cancel", title: "❌ Cancel" },
-      ],
-    });
+    await wa.sendText(owner,
+      `${body}\n\n⚠️ In extra items ka price chahiye: ${need.join(", ")}\n` +
+      `Reply karein jaise:\n${need[0]} 45${need[1] ? ", " + need[1] + " 60" : ""}`);
+    return;
   }
+  await wa.sendButtons(owner, {
+    body: `${body}\n\nSab sahi hai? Confirm karte hi customers ko chala jayega.`,
+    buttons: [
+      { id: "menu_confirm", title: "✅ Confirm & Send" },
+      { id: "menu_cancel", title: "❌ Cancel" },
+    ],
+  });
 }
 
-// Fill prices from an owner reply like "Palak Patra 45, Puri Sabji 60".
+// Fill missing EXTRA prices from an owner reply like "Dhokla 45, Samosa 15".
 function applyPrices(text) {
   const segs = text.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
   let applied = 0;
@@ -40,11 +53,10 @@ function applyPrices(text) {
     if (!m) continue;
     const name = m[1].trim().toLowerCase();
     const price = Number(m[2]);
-    const item = pendingMenu.items.find((it) => it.name.toLowerCase() === name)
-      || pendingMenu.items.find((it) => it.name.toLowerCase().includes(name) || name.includes(it.name.toLowerCase()));
+    const item = pendingMenu.extras.find((it) => it.name.toLowerCase() === name)
+      || pendingMenu.extras.find((it) => it.name.toLowerCase().includes(name) || name.includes(it.name.toLowerCase()));
     if (item) { item.price = price; applied++; }
   }
-  pendingMenu.needPrice = pendingMenu.items.filter((it) => it.price == null).map((it) => it.name);
   return applied;
 }
 
@@ -55,9 +67,12 @@ async function handleOwner(text, selectionId = null) {
 
   // ----- interactive taps for the menu draft -----
   if (selectionId === "menu_confirm" && pendingMenu) {
-    const items = pendingMenu.items.filter((it) => it.price != null);
-    await sheets.setMenuItems(sheets.todayStr(), items);
-    await sheets.upsertCatalogItems(items);
+    // Drop extras still missing a price — they can't be sold.
+    pendingMenu.extras = pendingMenu.extras.filter((e) => e.price != null);
+    const rows = menuParse.toSheetRows(pendingMenu, cfg.biz.tiffinPrice);
+    await sheets.setMenuItems(sheets.todayStr(), rows);
+    // Only priced à-la-carte items belong in the reusable price book.
+    await sheets.upsertCatalogItems(pendingMenu.extras.map((e) => ({ name: e.name, category: "Extra", price: e.price })));
     pendingMenu = null;
     await wa.sendText(owner, `✅ Menu set! Ab sabhi customers ko bhej raha hun...`);
     await jobs.broadcastMenu({ force: true });
@@ -69,6 +84,7 @@ async function handleOwner(text, selectionId = null) {
   if (t === "list") { await jobs.kitchenList(); return true; }
   if (t === "summary" || t === "hisaab") { await jobs.dailySummary(); return true; }
   if (t === "broadcast") { await jobs.broadcastMenu({ force: true }); return true; }
+  if (t === "format" || t === "sample") { await wa.sendText(owner, formatHelp()); return true; }
   if (t === "band") { logic.setPaused(true); await wa.sendText(owner, "🔴 Orders PAUSED. 'chalu' bhej kar resume karein."); return true; }
   if (t === "chalu") { logic.setPaused(false); await wa.sendText(owner, "🟢 Orders RESUMED."); return true; }
 
@@ -87,12 +103,12 @@ async function handleOwner(text, selectionId = null) {
 
   if (t === "help") {
     await wa.sendText(owner,
-      `Commands:\n📋 Aaj ka menu set karne ke liye — bas apna menu paste kar dein (jaise roz bhejte hain). Main items + price nikaal ke confirm maangunga, phir customers ko bhej dunga.\n\nlist — aaj ki order + delivery list\npaid <naam/number> — payment confirm\nbroadcast — menu dobara bhejo\nband / chalu — orders pause/resume\nsummary — aaj ka hisaab`);
+      `Commands:\n📋 Aaj ka menu set karne ke liye menu paste karein — format dekhne ke liye "format" bhejein.\n\nlist — aaj ki order + delivery list\npaid <naam/number> — payment confirm\nbroadcast — menu dobara bhejo\nband / chalu — orders pause/resume\nsummary — aaj ka hisaab`);
     return true;
   }
 
   // ----- price reply while a menu draft is pending -----
-  if (pendingMenu && pendingMenu.needPrice.length && /\d/.test(text)) {
+  if (pendingMenu && extrasNeedingPrice(pendingMenu).length && /\d/.test(text)) {
     const n = applyPrices(text);
     if (n) { await showMenuDraft(owner); return true; }
   }
@@ -112,11 +128,18 @@ async function handleOwner(text, selectionId = null) {
     /^(menu|men?u\s*(set|update|new)?|set\s*menu|new\s*menu|update\s*menu|aaj\s*ka\s*menu|today'?s?\s*menu)\??$/i.test(t);
 
   if (isMenuPaste) {
-    await wa.sendText(owner, `⏳ Menu padh raha hun...`);
-    const catalog = await sheets.getCatalog();
-    const { items, needPrice } = await parseMenu(text, catalog);
-    if (!items.length) { await wa.sendText(owner, `Menu samajh nahi aaya 🙏 thoda simple karke dobara paste karein.`); return true; }
-    pendingMenu = { items, needPrice };
+    // Agreed format: parsed locally, instantly, no LLM.
+    let model = menuParse.parseMenuText(text);
+    if (!menuParse.hasContent(model)) {
+      // Paste that ignores the format — fall back to the LLM, but a rate limit
+      // or outage must not block the owner, so failure lands on the format help.
+      await wa.sendText(owner, `⏳ Menu padh raha hun...`);
+      const catalog = await sheets.getCatalog();
+      const { items } = await parseMenu(text, catalog);
+      model = { tiffinPrice: null, groups: [], included: [], extras: items, ignored: 0, sawHeader: false };
+    }
+    if (!menuParse.hasContent(model)) { await wa.sendText(owner, formatHelp()); return true; }
+    pendingMenu = model;
     await showMenuDraft(owner);
     return true;
   }
@@ -125,7 +148,7 @@ async function handleOwner(text, selectionId = null) {
     // Deterministic welcome/guide — never send greetings/ambiguous text to the LLM
     // (it would hallucinate a fake menu, as seen in testing).
     await wa.sendText(owner,
-      `Namaste 🙏\nAaj ka menu set karne ke liye apna *pura menu* yahan paste kar dein (jaise roz customers ko bhejte hain) 📋\nMain items + price nikaal ke confirm maangunga, phir sabko bhej dunga.\n\nCommands: list · paid <naam> · broadcast · band/chalu · summary · help`);
+      `Namaste 🙏\nAaj ka menu paste kar dein 📋 Main draft bana ke confirm maangunga, phir sabko bhej dunga.\n\nFormat dekhne ke liye "format" bhejein.\n\nCommands: list · paid <naam> · broadcast · band/chalu · summary · help`);
     return true;
   }
 

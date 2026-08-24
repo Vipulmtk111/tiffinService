@@ -1,9 +1,9 @@
 # 🍱 Tiffin Bot — WhatsApp Order Assistant
 
-WhatsApp ordering assistant for a tiffin & snacks shop. The **owner** sets the daily menu by pasting it in plain text (an LLM structures it); **customers order by tapping** an interactive menu — pick items, quantities, review, submit. Everything is stored in Google Sheets and the owner's day is automated. The LLM stays out of the order path; it only structures the owner's menu and answers customer *questions*.
+WhatsApp ordering assistant for a tiffin & snacks shop. The **owner** sets the daily menu by pasting it in an agreed plain-text format (parsed locally, no LLM); **customers order by tapping** an interactive menu — pick items, quantities, review, submit. Everything is stored in Google Sheets and the owner's day is automated. The LLM stays out of the order path; it only answers customer *questions* and rescues a paste that ignores the format.
 
 ## What it does
-- **Owner pastes the daily menu** (exactly like they already do on WhatsApp). An LLM turns it into structured items, pulls prices from a persistent **Catalog** price book, and asks the owner only for any *new* item's price. Owner taps **Confirm** → it broadcasts to all customers.
+- **Owner pastes the daily menu** in the [agreed format](#daily-menu-format) — choose-one groups (sabji, bread), always-included items, and priced extras. Parsed deterministically, so nothing depends on an LLM being up. Owner taps **Confirm** → it broadcasts to all customers.
 - **Customers order by tapping**, no messy typing: interactive list → quantity buttons → add more → 🧾 review → ✅ submit. Deterministic items and prices — no LLM guessing, no wrong orders.
 - Remembers customer addresses; asks only first-timers.
 - Customers who just ask a **question** ("kitne baje delivery?", "aaj khandvi hai?") get an LLM answer from today's menu facts — bulk/complaint/custom queries forward to the owner.
@@ -11,6 +11,43 @@ WhatsApp ordering assistant for a tiffin & snacks shop. The **owner** sets the d
 - **Evening** → per-customer bill with UPI link; one polite reminder next morning.
 - **Night** → daily summary (orders, items, revenue, collected, pending, best-seller) + DailyLog row.
 - Owner commands: paste-a-menu, `list`, `paid <name>`, `band`/`chalu`, `broadcast`, `summary`, `help`.
+
+
+## Daily menu format
+
+The owner sets the menu by pasting it in this format. It is parsed **locally and deterministically** — no LLM, so a rate-limited or offline model can never block the menu.
+
+```
+TIFFIN - 80
+
+SABJI (any 1)
+- Suki Bhaji
+- Sev Tameta
+
+BREAD (any 1)
+- Roti x5
+- Thepla x4
+
+INCLUDED
+- Dal Bhat
+- Fryms
+
+EXTRA
+- Dhokla - 40
+```
+
+| Line | Meaning |
+|---|---|
+| `TIFFIN - 80` | today's tiffin price (optional — falls back to `TIFFIN_PRICE` in `.env`) |
+| `<NAME> (any 1)` | a choose-one group; the customer picks exactly one option |
+| `INCLUDED` | always in the tiffin, shown but never asked about |
+| `EXTRA` | a la carte items, each with its own price |
+| `Roti x5` | `x5` / `[5]` is the **quantity included**, never a price |
+| `Dhokla - 40` | inside `EXTRA`, a trailing number is the **price** |
+
+Decoration survives: `》`, `●`, `👉`, `*`, `•` and `1.` numbering are stripped, and booking/timing lines are ignored. A headerless priced list (`Flower bateta - 50`) still works and is treated as `EXTRA` items. Send `format` to the bot to get this sample on WhatsApp.
+
+Customers then order entirely by tapping: pick sabji → pick bread → quantity → extras → review → submit. The LLM is only reached for off-script *questions*.
 
 ## The owner's day (the loop this bot runs)
 1. **08:00** — bot nudges the owner: *"Aaj ka menu paste kar dein"* (or confirms it if already set).
