@@ -193,16 +193,19 @@ async function sendExtrasList(phone, m, body, s = null) {
     header: "Extra items ➕",
     body: body || (tiffin.length
       ? `✅ Aapka tiffin order mein hai:\n${tiffin.map((i) => `• ${i.qty}× ${i.name}`).join("\n")}\n\nExtra add karein — tiffin waise ka waisa rahega 👇`
-      : `Extra mein kya lenge? 👇`),
+      : `Extra mein kya lenge? 👇
+(☑ = order mein hai · dobara tap karne se hat jayega)`),
     buttonText: "Extra chunein ➕",
     sections: [{
       title: "➕ EXTRA",
       rows: m.extras.map((e, i) => {
-        const qty = inCart.get(e.name);
+        const line = (s?.cart || []).find((c) => c.name === e.name);
         return {
           id: `x:${i}`,
-          title: qty ? `✅ ${e.name}` : `  • ${e.name}`,
-          description: qty ? `    ₹${e.price} · ${qty}× order mein` : `    ₹${e.price}`,
+          title: line ? `☑ ${e.name}` : `☐ ${e.name}`,
+          description: line
+            ? `    ₹${e.price} · tap karke hatayein`
+            : `    ₹${e.price} · tap karke add karein`,
         };
       }),
     }],
@@ -307,16 +310,59 @@ async function reviewOrSubmit(phone, name, s) {
     return wa.sendText(phone, `${cartSummary(s.cart)}\nTotal: ₹${cartTotal(s.cart)} 👍\n\nAapka delivery address bhejein (ghar/flat no, building, area) 🏠`);
   }
   s.awaiting = "confirm"; state.set(phone, s);
+  const m = menuParse.fromSheetRows(await sheets.getMenu());
   return wa.sendButtons(phone, {
-    body: `🧾 *Order*\n${cartSummary(s.cart)}\n— — —\nTotal: ₹${cartTotal(s.cart)}\n\n` +
-      `📍 *Delivery address:*\n${customer.address}\n\n` +
-      `(quantity badalni ho toh number bhejein · cancel karne ke liye "cancel")`,
+    body: renderOrderPanel(s, m, customer.address),
     buttons: [
       { id: "submit", title: "✅ Confirm order" },
       { id: "add_more", title: "➕ Aur add karein" },
       { id: "addr:new", title: "✏️ Address" },
     ],
   });
+}
+
+/**
+ * The order panel: everything chosen, everything available, in ONE message.
+ *
+ * WhatsApp has no checkbox widget outside Flows — a list shows exactly one
+ * selection and forgets it. Message text, though, is entirely ours, so every
+ * extra is listed with ☑ or ☐ and the whole state stays visible after each tap.
+ * Combined with tapping an extra toggling it on and off, this is checkbox
+ * behaviour built out of the parts WhatsApp does give us.
+ */
+function renderOrderPanel(s, m, address) {
+  const tiffins = s.cart.filter((i) => i.name.startsWith("Tiffin"));
+  const inCart = new Set(s.cart.map((i) => i.name));
+
+  let out = `🧾 *Aapka order*\n\n`;
+
+  // Only mention a tiffin on a day that actually has one.
+  if (menuParse.isTiffinMenu(m)) {
+    out += tiffins.length
+      ? tiffins.map((i) => `☑ ${i.qty}× ${i.name} — ₹${i.price * i.qty}`).join("\n") + "\n"
+      : `☐ Tiffin abhi nahi chuna\n`;
+  }
+
+  if (m.extras.length) {
+    out += `${menuParse.isTiffinMenu(m) ? "\n*Extra*" : "*Items*"} (jitne chahein):\n`;
+    out += m.extras.map((e) => {
+      const line = s.cart.find((i) => i.name === e.name);
+      const tick = inCart.has(e.name) ? "☑" : "☐";
+      const qty = line && line.qty > 1 ? ` — ${line.qty}× = ₹${line.price * line.qty}` : "";
+      return `${tick} ${e.name} — ₹${e.price}${qty}`;
+    }).join("\n") + "\n";
+  }
+
+  // Anything in the cart that today's menu no longer lists (menu changed
+  // mid-order) still has to be shown, or the total wouldn't add up.
+  const known = new Set([...tiffins.map((i) => i.name), ...m.extras.map((e) => e.name)]);
+  const orphans = s.cart.filter((i) => !known.has(i.name));
+  if (orphans.length) out += orphans.map((i) => `☑ ${i.qty}× ${i.name} — ₹${i.price * i.qty}`).join("\n") + "\n";
+
+  out += `\n— — —\n*Total: ₹${cartTotal(s.cart)}*\n\n`;
+  out += `📍 *Delivery address:*\n${address}\n\n`;
+  out += `(quantity ke liye number bhejein · "cancel" se rad karein)`;
+  return out;
 }
 
 async function placeOrder(phone, name, s) {
@@ -380,8 +426,18 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
     if (!menuAvailable) return notReady();
     const e = m.extras[Number(selectionId.slice(2))];
     if (!e) return wa.sendText(phone, `Ye item aaj available nahi 🙏`);
-    addLine(s, e.name, e.price);
+    // Toggle, not add: tapping a ticked extra unticks it. That is what makes a
+    // radio-only list behave like a checkbox from the customer's side.
+    const at = s.cart.findIndex((i) => i.name === e.name);
+    if (at >= 0) {
+      s.cart.splice(at, 1);
+      if (s.lastLine === e.name) s.lastLine = null;
+    } else {
+      addLine(s, e.name, e.price);
+    }
     s.awaiting = null; state.set(phone, s);
+    // Removing the last line empties the cart — go back to the menu, not a panel.
+    if (!s.cart.length) return sendMenuInteractive(phone, m, s);
     return reviewOrSubmit(phone, name, s);
   }
 

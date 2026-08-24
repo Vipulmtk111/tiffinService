@@ -93,7 +93,7 @@ const { handleOwner } = require("../src/ownerCommands");
 
   reset();
   await logic.handleMessage(CUST, "Raju", "2", null);
-  ok("a bare number on the card sets the quantity", /2× Bhindi Thali/.test(last(CUST).body || "") && /₹240/.test(last(CUST).body || ""));
+  ok("a bare number on the card sets the quantity", /Bhindi Thali/.test(last(CUST).body || "") && /2× = ₹240/.test(last(CUST).body || ""));
 
   reset();
   await logic.handleMessage(CUST, "Raju", "", "submit");
@@ -322,6 +322,37 @@ INCLUDED
   await logic.handleFlowOrder(C5, "Ravi", { sabji: "0", qty: "1", address: "" });
   ok("a submission with no address places no order",
     /address/i.test(last(C5).text || "") && orders[orders.length - 1] === flowRow);
+
+  console.log("\n=== CHECKBOX BEHAVIOUR without Flows ===");
+  const C6 = "919900000007";
+  customers.set(C6, { phone: C6, name: "Nita", address: "3 Rose Villa" });
+  reset();
+  await logic.handleMessage(C6, "Nita", "", "c:0");
+  const panel1 = last(C6).body || "";
+  ok("panel shows the chosen tiffin ticked", /☑ 1\u00d7 Tiffin/.test(panel1));
+  ok("panel lists every extra with an empty box", /☐ Dhokla/.test(panel1));
+
+  reset();
+  await logic.handleMessage(C6, "Nita", "", "x:0");
+  const panel2 = last(C6).body || "";
+  ok("ticking an extra keeps the tiffin ticked too",
+    /☑ 1\u00d7 Tiffin/.test(panel2) && /☑ Dhokla/.test(panel2));
+  ok("both selections are visible at once - the whole point",
+    (panel2.match(/☑/g) || []).length >= 2);
+  ok("total reflects both", new RegExp("Total: \u20b9" + (cfg.biz.tiffinPrice + 40)).test(panel2));
+
+  reset();
+  await logic.handleMessage(C6, "Nita", "", "add:extra");
+  const xrows = (last(C6).sections || []).flatMap((x) => x.rows);
+  ok("extras list shows the ticked one as ticked",
+    xrows.some((r) => r.id === "x:0" && r.title.startsWith("☑") && /hatayein/.test(r.description)));
+
+  reset();
+  await logic.handleMessage(C6, "Nita", "", "x:0");
+  const panel3 = last(C6).body || "";
+  ok("tapping a ticked extra UNTICKS it", /☐ Dhokla/.test(panel3));
+  ok("tiffin survives the untick", /☑ 1\u00d7 Tiffin/.test(panel3));
+  ok("total drops back", new RegExp("Total: \u20b9" + cfg.biz.tiffinPrice).test(panel3));
 
   console.log(`\n${fail === 0 ? "🎉 ALL PASS" : "⚠️  SOME FAILED"} — ${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
