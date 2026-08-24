@@ -167,31 +167,33 @@ EXTRA
   ok("no row title is truncated by WhatsApp's 24-char cap", rows.every((r) => r.title.length <= 24));
   // Extras must NOT be tappable items inside the tiffin list — a list is a radio
   // group, so tapping one there would visually deselect the tiffin.
-  ok("tiffin list holds no extra items, only a link to them",
-    !rows.some((r) => /^x:\d+$/.test(r.id)) && rows.some((r) => r.id === "x:list"));
+  ok("step 1 holds tiffin rows only - nothing that could steal the selection",
+    rows.every((r) => /^c:\d+$/.test(r.id)));
 
   // TAP 1 — pick the combo. Straight to the confirm card, no further questions.
   reset();
   await logic.handleMessage(C2, "Kiran", "", "c:2");
+  const step2 = last(C2);
+  ok("step 1 leads straight into step 2, extras", step2.type === "buttons" &&
+    (step2.buttons || []).some((b) => /^x:\d+$/.test(b.id)));
+  ok("step 2 can be skipped in one tap", (step2.buttons || []).some((b) => b.id === "review"));
+
+  reset();
+  await logic.handleMessage(C2, "Kiran", "", "review");
   const card = last(C2);
-  ok("one tap goes straight to the confirm card", card.type === "buttons");
+  ok("skipping extras lands on the review", card.type === "buttons");
   ok("card shows the chosen tiffin", /Tiffin \(Sev Tameta \+ 5 Roti\)/.test(card.body || ""));
   ok("card shows the saved address", /5 Park Rd/.test(card.body || ""));
-  ok("card offers confirm, add-more and address change",
-    ["submit", "add_more", "addr:new"].every((id) => (card.buttons || []).some((b) => b.id === id)));
+  ok("review offers confirm, address change and add-more",
+    ["submit", "addr:new", "add_more"].every((id) => (card.buttons || []).some((b) => b.id === id)));
 
   // Adding an extra must not look like it replaced the tiffin.
   reset();
   await logic.handleMessage(C2, "Kiran", "", "add_more");
-  const chooser = last(C2);
-  ok("'aur add karein' offers BUTTONS, which carry no selection state",
-    chooser.type === "buttons" &&
-    ["add:tiffin", "add:extra", "review"].every((id) => (chooser.buttons || []).some((b) => b.id === id)));
-  ok("chooser restates what is already in the order", /Sev Tameta/.test(chooser.body || ""));
+  ok("'aur add karein' goes straight back to step 1, no extra hop",
+    last(C2).type === "list" && (last(C2).sections || []).flatMap((x) => x.rows).some((r) => /^c:\d+$/.test(r.id)));
 
-  reset();
-  await logic.handleMessage(C2, "Kiran", "", "add:tiffin");
-  ok("reopened tiffin list shows the running cart", /Abhi tak/.test(last(C2).body || ""));
+  ok("reopened step 1 shows the running cart", /Abhi tak/.test(last(C2).body || ""));
   const reopened = (last(C2).sections || []).flatMap((x) => x.rows);
   ok("the row already in the cart carries a ✅",
     reopened.some((r) => r.id === "c:2" && r.title.startsWith("✅") && /order mein/.test(r.description)));

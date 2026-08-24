@@ -153,27 +153,21 @@ async function sendComboList(phone, m, s = null) {
   // selection off the tiffin row the customer just picked, which reads as
   // "my tiffin was removed". Once something is in the cart, extras are
   // reached from the confirm card instead, where buttons hold no such state.
-  if (m.extras.length && !inCart.size) {
-    sections.push({
-      title: "➕ EXTRA",
-      rows: [{
-        id: "x:list",
-        title: `  ➜ Extra items dekhein`,
-        description: `    ${m.extras.map((e) => `${e.name} ₹${e.price}`).join(", ")} — alag se`,
-      }],
-    });
-  }
+  // No extras row here on purpose. This list has ONE job - pick the tiffin -
+  // and a list is a single radio group, so any other row would move the
+  // selection off the tiffin. Extras follow automatically as step 2.
+  const extrasNote = m.extras.length
+    ? `\n\n➕ Extra step 2 mein: ${m.extras.map((e) => `${e.name} ₹${e.price}`).join(", ")}`
+    : "";
 
-  // Reopening the menu to add something must not look like the earlier pick was
-  // lost — WhatsApp lists are single-select, so show the running cart here.
   const cart = s && s.cart.length
-    ? `\n\n🧾 Abhi tak: ${s.cart.map((i) => `${i.qty}× ${i.name}`).join(", ")}\n(neeche se aur add karein — pehle wala rahega)`
-    : `\n\nJo chahiye woh select karein 👇 Ek tap mein order.`;
+    ? `\n\n🧾 Abhi tak: ${s.cart.map((i) => `${i.qty}× ${i.name}`).join(", ")}`
+    : "";
 
   return wa.sendList(phone, {
     header: "Aaj ka menu 🍱",
-    body: `🍱 *${cfg.biz.shopName}*\n\n*TIFFIN — ₹${price}*${incl}${cart}`,
-    buttonText: "Menu dekhein 🍱",
+    body: `🍱 *${cfg.biz.shopName}*\n\n*Step 1 — Tiffin chunein (₹${price})*${incl}${extrasNote}${cart}`,
+    buttonText: "Tiffin chunein 🍱",
     sections,
   });
 }
@@ -209,16 +203,16 @@ async function sendExtrasToggle(phone, m, s) {
     ? `☑ ${tiffins.map((i) => `${i.qty}× ${i.name}`).join("\n☑ ")}\n\n`
     : "";
 
+  const picked = m.extras.some((e) => inCart.has(e.name));
   return wa.sendButtons(phone, {
-    body: `🧾 *Aapka order*\n\n${head}*Extra* — jitne chahein select karein:\n${lines}\n\n` +
-      `— — —\n*Total: ₹${cartTotal(s?.cart || [])}*\n\n` +
-      `(neeche button dabakar on/off karein)`,
+    body: `${head}*Step 2 — Extra chahiye?* (optional)\n${lines}\n\n` +
+      `— — —\n*Total: ₹${cartTotal(s?.cart || [])}*`,
     buttons: [
       ...m.extras.map((e, i) => ({
         id: `x:${i}`,
         title: `${inCart.has(e.name) ? "☑" : "☐"} ${e.name}`,
       })),
-      { id: "review", title: "✅ Ho gaya" },
+      { id: "review", title: picked ? "✅ Aage badhein" : "⏭️ Nahi chahiye" },
     ],
   });
 }
@@ -288,12 +282,13 @@ async function askTiffinQty(phone, s, m) {
   });
 }
 
-async function addTiffinToCart(phone, s, m, qty) {
+async function addTiffinToCart(phone, name, s, m, qty) {
   const price = m.tiffinPrice != null ? m.tiffinPrice : cfg.biz.tiffinPrice;
   addLine(s, comboCartName(s.picks), price, qty);
   s.picks = []; s.groupIdx = 0; s.awaiting = null;
   state.set(phone, s);
-  return askAddMore(phone, s, m);
+  // Same three steps as the combo path: tiffin -> extras (optional) -> review.
+  return m.extras.length ? sendExtras(phone, m, s) : reviewOrSubmit(phone, name, s);
 }
 
 /** Add one line to the cart (or bump an existing one) and remember it as latest. */
@@ -303,38 +298,6 @@ function addLine(s, name, price, qty = 1) {
   else s.cart.push({ name, price, qty });
   s.lastLine = name;
   return s;
-}
-
-/**
- * "Aur add karein" from the confirm card. Buttons, not list rows — a button
- * carries no selection state, so choosing where to go next can never appear to
- * undo what is already in the cart. Each branch then sends a FRESH list used for
- * one purpose only: tiffins (pick one) or extras (add one).
- */
-async function sendAddChooser(phone, m, s) {
-  const hasTiffin = menuParse.isTiffinMenu(m);
-  if (!m.extras.length) return sendMenuInteractive(phone, m, s);
-  if (!hasTiffin) return sendExtrasList(phone, m, null, s);
-  return wa.sendButtons(phone, {
-    body: `🧾 *Abhi tak aapke order mein:*\n${cartSummary(s.cart)}\n— — —\nTotal: ₹${cartTotal(s.cart)}\n\n` +
-      `Ye sab rahega ✅ — aur kya add karein?`,
-    buttons: [
-      { id: "add:tiffin", title: "🍱 Aur tiffin" },
-      { id: "add:extra", title: "➕ Extra" },
-      { id: "review", title: "🧾 Bas, review" },
-    ],
-  });
-}
-
-async function askAddMore(phone, s, m) {
-  const buttons = [];
-  if (menuParse.isTiffinMenu(m)) buttons.push({ id: "t:start", title: "🍱 Aur tiffin" });
-  if (m.extras.length) buttons.push({ id: "x:list", title: "➕ Extra" });
-  buttons.push({ id: "review", title: "🧾 Review" });
-  return wa.sendButtons(phone, {
-    body: `✅ Cart:\n${cartSummary(s.cart)}\n— — —\nTotal: ₹${cartTotal(s.cart)}\n\nAur kuch?`,
-    buttons,
-  });
 }
 
 async function forwardToOwner(phone, name, text) {
@@ -359,8 +322,8 @@ async function reviewOrSubmit(phone, name, s) {
     body: renderOrderPanel(s, m, customer.address),
     buttons: [
       { id: "submit", title: "✅ Confirm order" },
+      { id: "addr:new", title: "✏️ Address badlein" },
       { id: "add_more", title: "➕ Aur add karein" },
-      { id: "addr:new", title: "✏️ Address" },
     ],
   });
 }
@@ -458,7 +421,7 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
   if (selectionId.startsWith("t:qty:")) {
     if (!menuAvailable) return notReady();
     if (!s.picks.length) return wa.sendText(phone, `Pehle tiffin ke options chunein 🙏 "menu" likhein.`);
-    return addTiffinToCart(phone, s, m, Number(selectionId.slice(6)) || 1);
+    return addTiffinToCart(phone, name, s, m, Number(selectionId.slice(6)) || 1);
   }
 
   if (selectionId === "x:list") {
@@ -487,7 +450,8 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
     return reviewOrSubmit(phone, name, s);
   }
 
-  // One tap = the whole tiffin, then straight to the confirm card.
+  // Step 1 done: one tap picked the whole tiffin. Step 2 is extras (optional),
+  // and if there are none today we go straight to the review.
   if (/^c:\d+$/.test(selectionId)) {
     if (!menuAvailable) return notReady();
     const picks = buildCombos(m)[Number(selectionId.slice(2))];
@@ -495,7 +459,7 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
     const price = m.tiffinPrice != null ? m.tiffinPrice : cfg.biz.tiffinPrice;
     addLine(s, comboCartName(picks), price);
     s.picks = []; s.groupIdx = 0; s.awaiting = null; state.set(phone, s);
-    return reviewOrSubmit(phone, name, s);
+    return m.extras.length ? sendExtras(phone, m, s) : reviewOrSubmit(phone, name, s);
   }
 
   if (selectionId === "addr:new") {
@@ -503,7 +467,7 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
     return wa.sendText(phone, `Naya delivery address bhejein 🏠\n(ghar/flat no, building, area)`);
   }
 
-  if (selectionId === "add_more") return sendAddChooser(phone, m, s);
+  if (selectionId === "add_more") return sendMenuInteractive(phone, m, s);
   if (selectionId === "add:tiffin") return sendMenuInteractive(phone, m, s);
   if (selectionId === "add:extra") return sendExtras(phone, m, s);
   if (selectionId === "review") return reviewOrSubmit(phone, name, s);
@@ -579,7 +543,7 @@ async function handleMessage(phone, name, text, selectionId = null) {
   // ===== awaiting a typed quantity =====
   if (s.awaiting === "tqty" && s.picks.length) {
     const qty = parseInt(text.replace(/\D/g, ""), 10);
-    if (qty > 0 && qty < 100) return addTiffinToCart(phone, s, m, qty);
+    if (qty > 0 && qty < 100) return addTiffinToCart(phone, name, s, m, qty);
   }
   // On the confirm card a bare number changes the quantity of the last line.
   if (s.awaiting === "confirm" && s.cart.length && /^\d{1,2}$/.test(lower)) {
