@@ -186,9 +186,6 @@ async function sendComboList(phone, m, s = null) {
  * only works with 2 extras or fewer; beyond that we fall back to the list.
  */
 const TOGGLE_BUTTON_MAX = 2;
-// Taps cycle an extra's quantity up to this, then clear it. Kept small so
-// undoing never takes more than one extra tap.
-const TAP_QTY_MAX = 3;
 
 function extrasFitButtons(m) { return m.extras.length > 0 && m.extras.length <= TOGGLE_BUTTON_MAX; }
 
@@ -209,14 +206,13 @@ async function sendExtrasToggle(phone, m, s) {
     : `*Step 2 \u2014 Extra chahiye?* (optional)\n${restLine}`;
 
   return wa.sendButtons(phone, {
-    body: `\ud83e\uddfe *Aapka order*\n${chosen}\n*Total: \u20b9${cartTotal(cart)}*\n\n${prompt}\n` +
-      `(dobara tap = quantity \u00b7 ${TAP_QTY_MAX}\u00d7 ke baad hat jayega)`,
+    body: `\ud83e\uddfe *Aapka order*\n${chosen}\n*Total: \u20b9${cartTotal(cart)}*\n\n${prompt}`,
     buttons: [
       ...m.extras.map((e, i) => {
         const q = qtyOf(e.name);
         return {
           id: `x:${i}`,
-          title: q > 1 ? `\u2611 ${q}\u00d7 ${e.name}` : q ? `\u2611 ${e.name}` : `\u2610 ${e.name}`,
+          title: q ? `\u2611 ${e.name}` : `\u2610 ${e.name}`,
         };
       }),
       { id: "review", title: picked ? "\u2705 Aage badhein" : "\u23ed\ufe0f Nahi chahiye" },
@@ -405,8 +401,7 @@ function renderOrderPanel(s, m, address) {
   // listing the rest with empty boxes made customers think it was asking again.
   const addNote = s.appendTo ? `\n(purane order #${s.appendTo.id} mein add ho raha hai)` : "";
   return `\ud83e\uddfe *Aapka order*${addNote}\n\n${lines}\n\u2014 \u2014 \u2014\n*Total: \u20b9${cartTotal(s.cart)}*\n\n` +
-    `\ud83d\udccd *Delivery address:*\n${address}\n\n` +
-    `(quantity ke liye number bhejein \u00b7 "cancel" se rad karein)`;
+    `\ud83d\udccd *Delivery address:*\n${address}`;
 }
 
 async function placeOrder(phone, name, s) {
@@ -527,15 +522,10 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
     if (!menuAvailable) return notReady();
     const e = m.extras[Number(selectionId.slice(2))];
     if (!e) return wa.sendText(phone, `Ye item aaj available nahi 🙏`);
-    // Each tap cycles the quantity: none -> 1 -> 2 -> ... -> max -> none again.
-    // One control does both jobs, so ordering two samosas costs two taps and
-    // clearing them one more, with no extra screen or typing.
+    // Plain on/off. Tap adds it, tap again removes it - nothing to learn.
     const at = s.cart.findIndex((i) => i.name === e.name);
     if (at < 0) {
       addLine(s, e.name, e.price);
-    } else if (s.cart[at].qty < TAP_QTY_MAX) {
-      s.cart[at].qty += 1;
-      s.lastLine = e.name;
     } else {
       s.cart.splice(at, 1);
       if (s.lastLine === e.name) s.lastLine = null;

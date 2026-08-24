@@ -381,25 +381,15 @@ INCLUDED
   ok("reopened extras screen shows the ticked one as ticked",
     (last(C6).buttons || []).some((b) => b.id === "x:0" && b.title.startsWith("☑")));
 
-  // Tapping again raises the quantity rather than clearing it.
+  // Tapping again simply removes it - no quantity cycling to puzzle over.
   reset();
   await logic.handleMessage(C6, "Nita", "", "x:0");
   const panel3 = last(C6).body || "";
-  ok("second tap makes it 2x", /✅ 2\u00d7 Dhokla/.test(panel3));
-  ok("total counts both", new RegExp("Total: \u20b9" + (cfg.biz.tiffinPrice + 80)).test(panel3));
-  ok("button label carries the quantity",
-    (last(C6).buttons || []).some((b) => b.id === "x:0" && /2\u00d7 Dhokla/.test(b.title)));
-
-  // Past the cap it clears, so undoing is never more than one extra tap.
-  reset();
-  await logic.handleMessage(C6, "Nita", "", "x:0");   // 3x
-  await logic.handleMessage(C6, "Nita", "", "x:0");   // cleared
-  const panel4 = last(C6).body || "";
-  ok("one more tap past the cap clears it",
-    !new RegExp("✅ \\d+\u00d7 Dhokla").test(panel4) &&
-    (last(C6).buttons || []).some((b) => b.title === "☐ Dhokla"));
-  ok("tiffin survives the whole cycle", /✅ 1\u00d7 Tiffin/.test(panel4));
-  ok("total returns to the tiffin alone", new RegExp("Total: \u20b9" + cfg.biz.tiffinPrice).test(panel4));
+  ok("tapping a ticked extra removes it", !/✅ \d+\u00d7 Dhokla/u.test(panel3));
+  ok("its button goes back to an empty box",
+    (last(C6).buttons || []).some((b) => b.id === "x:0" && b.title === "☐ Dhokla"));
+  ok("tiffin is untouched", /✅ 1\u00d7 Tiffin/.test(panel3));
+  ok("total returns to the tiffin alone", new RegExp("Total: \u20b9" + cfg.biz.tiffinPrice).test(panel3));
 
   console.log("\n=== CUSTOMER QUESTIONS: forward and answer ===");
   const C7 = "919900000008";
@@ -435,6 +425,9 @@ INCLUDED
     out.some((m) => m.to === C7 && /75 per tiffin/.test(m.text || "")));
 
   answerImpl = async () => "Delivery 1-2 baje tak ho jati hai 🛵";
+
+  ok("no screen advertises tap-to-repeat or typed quantity",
+    !out.concat([last(C6)]).some((mm) => /dobara tap|quantity ke liye/i.test(mm.body || mm.text || "")));
 
   console.log("\n=== REPEAT ORDER: add to it, or start a new one ===");
   const C8 = "919900000009";
