@@ -201,7 +201,17 @@ EXTRA
   await logic.handleMessage(C2, "Kiran", "", "submit");
   const tiffinOrder = orders[orders.length - 1];
   ok("order line names the chosen combo", /Sev Tameta \+ 5 Roti/.test(tiffinOrder.items[0].name));
+  ok("confirmation shows the delivery address", /9 Lake View, Satellite/.test(last(C2).text || ""));
+  ok("order row carries the address for the delivery list", tiffinOrder.address === "9 Lake View, Satellite");
   ok("order amount uses the tiffin price", tiffinOrder.amount === cfg.biz.tiffinPrice * 2);
+
+  console.log("\n=== SAFETY: an order is never banked without an address ===");
+  const C4 = "919900000005";
+  reset();
+  await logic.handleMessage(C4, "Anon", "", "c:0");   // no customer record at all
+  await logic.handleMessage(C4, "Anon", "", "submit");
+  ok("submit without an address asks for one instead of placing the order",
+    /address/i.test(last(C4).text || "") && !orders.some((o) => o.phone === C4));
 
   console.log("\n=== BROADCAST: the menu customers receive is orderable ===");
   const jobs = require("../src/jobs");

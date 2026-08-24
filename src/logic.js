@@ -249,7 +249,8 @@ async function reviewOrSubmit(phone, name, s) {
   }
   s.awaiting = "confirm"; state.set(phone, s);
   return wa.sendButtons(phone, {
-    body: `🧾 *Order*\n${cartSummary(s.cart)}\n— — —\nTotal: ₹${cartTotal(s.cart)}\n📍 ${customer.address}\n\n` +
+    body: `🧾 *Order*\n${cartSummary(s.cart)}\n— — —\nTotal: ₹${cartTotal(s.cart)}\n\n` +
+      `📍 *Delivery address:*\n${customer.address}\n\n` +
       `(quantity badalni ho toh number bhejein · cancel karne ke liye "cancel")`,
     buttons: [
       { id: "submit", title: "✅ Confirm order" },
@@ -261,13 +262,23 @@ async function reviewOrSubmit(phone, name, s) {
 
 async function placeOrder(phone, name, s) {
   const customer = await sheets.getCustomer(phone);
+  const address = (customer?.address || "").trim();
+  // Never bank an order we can't deliver — that lands as "address?" on the
+  // owner's delivery list with no way to recover it.
+  if (!address) {
+    s.awaiting = "address"; state.set(phone, s);
+    return wa.sendText(phone, `Order lagane se pehle delivery address chahiye 🏠\n(ghar/flat no, building, area)`);
+  }
   const amount = cartTotal(s.cart);
   const id = await sheets.addOrder({
     date: sheets.todayStr(), phone, name: customer?.name || name,
-    items: s.cart, amount, address: customer?.address || "",
+    items: s.cart, amount, address,
   });
   state.delete(phone);
-  return wa.sendText(phone, `Order confirm ✅ (#${id})\n${cartSummary(s.cart)}\nTotal: ₹${amount}\nJald deliver ho jayega. Dhanyawad 🙏`);
+  return wa.sendText(phone,
+    `Order confirm ✅ (#${id})\n\n${cartSummary(s.cart)}\n— — —\nTotal: ₹${amount}\n\n` +
+    `📍 *Delivery address:*\n${address}\n\n` +
+    `Address galat ho toh abhi bata dein 🙏\nJald deliver ho jayega. Dhanyawad 🙂`);
 }
 
 // ---------- interactive taps ----------
