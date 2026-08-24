@@ -247,12 +247,15 @@ function fromSheetRows(rows = []) {
   return m;
 }
 
-/** "Suki Bhaji + Roti x5" — the label stored on an order line. */
+/** "5 Roti" reads better than "Roti x5" for anything a customer sees. */
+function optDisplay(o) { return o.qty ? `${o.qty} ${o.name}` : o.name; }
+
+/** "Suki Bhaji + 5 Roti" — the label on an order line and the confirm card. */
 function comboLabel(picks) {
-  return picks.map((p) => (p.qty ? `${p.name} x${p.qty}` : p.name)).join(" + ");
+  return picks.map(optDisplay).join(" + ");
 }
 
 module.exports = {
   parseMenuText, isTiffinMenu, hasContent,
-  toSheetRows, fromSheetRows, comboLabel, splitQty, CAT,
+  toSheetRows, fromSheetRows, comboLabel, optDisplay, splitQty, CAT,
 };

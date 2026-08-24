@@ -18,7 +18,7 @@ function isPaused() { return ordersPaused; }
 function freshState() { return { cart: [], awaiting: null, picks: [], groupIdx: 0, lastLine: null }; }
 
 // ---------- rendering ----------
-const optLabel = (o) => (o.qty ? `${o.name} x${o.qty}` : o.name);
+const optLabel = menuParse.optDisplay;
 
 /**
  * Human-readable menu from the parsed model.
@@ -80,14 +80,14 @@ function comboListFits(m) {
 }
 
 // ---------- interactive senders ----------
-async function sendMenuInteractive(phone, m) {
+async function sendMenuInteractive(phone, m, s = null) {
   const isTiffin = menuParse.isTiffinMenu(m);
 
   // Flat priced list only (no tiffin) -> behave like a plain item list.
   if (!isTiffin) return sendExtrasList(phone, m, renderMenuModel(m, { cta: true }));
 
   // Preferred path: one list, one tap picks the whole tiffin.
-  if (comboListFits(m)) return sendComboList(phone, m);
+  if (comboListFits(m)) return sendComboList(phone, m, s);
 
   // Too many combinations for one list -> ask group by group.
   const buttons = [{ id: "t:start", title: "🍱 Tiffin order" }];
@@ -95,16 +95,48 @@ async function sendMenuInteractive(phone, m) {
   return wa.sendButtons(phone, { body: renderMenuModel(m, { cta: true }), buttons });
 }
 
-/** The whole day's menu as a single tappable list. */
-async function sendComboList(phone, m) {
+/**
+ * The whole day's menu as one tappable list, laid out like a menu board.
+ *
+ * Row titles are capped at 24 characters by WhatsApp, so "Paneer Bhurji Sabji +
+ * Roti x5" would arrive truncated to "Paneer Bhurji Sabji + Ro" — and its
+ * sibling row to "...+ Th", leaving two rows a customer can't tell apart.
+ * Instead the FIRST choice group becomes the section heading and the remaining
+ * groups become short rows under it:
+ *
+ *   Paneer Bhurji Sabji          <- section
+ *     + 5 Roti          ₹80      <- row
+ *     + 4 Thepla        ₹80
+ *   Sev Tameta
+ *     + 5 Roti          ₹80
+ *     ...
+ */
+async function sendComboList(phone, m, s = null) {
   const price = m.tiffinPrice != null ? m.tiffinPrice : cfg.biz.tiffinPrice;
   const combos = buildCombos(m);
-  const incl = m.included.length ? `\nSaath mein: ${m.included.map(optLabel).join(", ")}` : "";
+  const incl = m.included.length ? `\n🍚 Har tiffin ke saath: ${m.included.map(menuParse.optDisplay).join(", ")}` : "";
+  const sections = [];
 
-  const sections = [{
-    title: "Tiffin 🍱",
-    rows: combos.map((picks, i) => ({ id: `c:${i}`, title: comboTitle(picks), description: `₹${price}` })),
-  }];
+  if (m.groups.length >= 2) {
+    // Section per first-group option; rows are the rest of the combination.
+    for (const headOpt of m.groups[0].options) {
+      const rows = combos
+        .map((picks, ci) => ({ picks, ci }))
+        .filter(({ picks }) => picks[0] === headOpt)
+        .map(({ picks, ci }) => ({
+          id: `c:${ci}`,
+          title: `+ ${picks.slice(1).map(menuParse.optDisplay).join(" + ")}`,
+          description: `₹${price}`,
+        }));
+      if (rows.length) sections.push({ title: menuParse.optDisplay(headOpt), rows });
+    }
+  } else {
+    sections.push({
+      title: m.groups.length ? m.groups[0].name : "Tiffin",
+      rows: combos.map((picks, i) => ({ id: `c:${i}`, title: comboTitle(picks), description: `₹${price}` })),
+    });
+  }
+
   if (m.extras.length) {
     sections.push({
       title: "Extra ➕",
@@ -112,10 +144,16 @@ async function sendComboList(phone, m) {
     });
   }
 
+  // Reopening the menu to add something must not look like the earlier pick was
+  // lost — WhatsApp lists are single-select, so show the running cart here.
+  const cart = s && s.cart.length
+    ? `\n\n🧾 Abhi tak: ${s.cart.map((i) => `${i.qty}× ${i.name}`).join(", ")}\n(neeche se aur add karein — pehle wala rahega)`
+    : `\n\nJo chahiye woh select karein 👇 Ek tap mein order.`;
+
   return wa.sendList(phone, {
     header: "Aaj ka menu 🍱",
-    body: `🍱 *${cfg.biz.shopName}*\nTiffin ₹${price}${incl}\n\nJo chahiye woh select karein 👇 Ek hi tap mein order.`,
-    buttonText: "Select 🍱",
+    body: `🍱 *${cfg.biz.shopName}*\n\n*TIFFIN — ₹${price}*${incl}${cart}`,
+    buttonText: "Menu dekhein 🍱",
     sections,
   });
 }
@@ -293,7 +331,7 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
     return wa.sendText(phone, `Naya delivery address bhejein 🏠\n(ghar/flat no, building, area)`);
   }
 
-  if (selectionId === "add_more") return sendMenuInteractive(phone, m);
+  if (selectionId === "add_more") return sendMenuInteractive(phone, m, s);
   if (selectionId === "review") return reviewOrSubmit(phone, name, s);
   if (selectionId === "submit") return s.cart.length ? placeOrder(phone, name, s) : wa.sendText(phone, `Cart khali hai 🙂`);
   if (selectionId === "edit") {

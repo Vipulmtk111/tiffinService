@@ -134,7 +134,7 @@ const { handleOwner } = require("../src/ownerCommands");
 EXTRA
 - Dhokla - 40`, null);
   const draft = last(OWNER).text || last(OWNER).body || "";
-  ok("draft shows both choice groups", /Suki Bhaji \/ Sev Tameta/.test(draft) && /Roti x5 \/ Thepla x4/.test(draft));
+  ok("draft shows both choice groups", /Suki Bhaji \/ Sev Tameta/.test(draft) && /5 Roti \/ 4 Thepla/.test(draft));
   ok("draft shows included items", /Dal Bhat, Fryms/.test(draft));
   ok("draft offers Confirm without asking for prices", last(OWNER).type === "buttons");
 
@@ -142,6 +142,7 @@ EXTRA
   await handleOwner("", "menu_confirm");
   ok("tiffin base row saved with the .env price", menu.some((r) => r.category === "base" && r.price === cfg.biz.tiffinPrice));
   ok("choice options saved under their group", menu.filter((r) => r.category === "pick:Sabji").length === 2);
+  // Stored as "Roti x5" (round-trips through splitQty); shown to customers as "5 Roti".
   ok("[5] read as quantity, not price", menu.some((r) => r.name === "Roti x5" && r.price === 0));
   ok("extra keeps its own price", menu.some((r) => r.category === "extra" && r.name === "Dhokla" && r.price === 40));
 
@@ -154,7 +155,9 @@ EXTRA
   const rows = (menuList.sections || []).flatMap((x) => x.rows);
   ok("greeting sends ONE list, not a chain of questions", menuList.type === "list");
   ok("every sabji×bread combo is a single row", rows.filter((r) => /^c:\d+$/.test(r.id)).length === 4);
-  ok("combo row names the whole tiffin", rows.some((r) => r.title === "Sev Tameta + Roti x5"));
+  ok("sabji is the section heading, bread the row", (menuList.sections || [])
+    .some((sec) => sec.title === "Sev Tameta" && sec.rows.some((r) => r.title === "+ 5 Roti")));
+  ok("no row title is truncated by WhatsApp's 24-char cap", rows.every((r) => r.title.length <= 24));
   ok("extras share the same list", rows.some((r) => r.id === "x:0" && r.title === "Dhokla"));
 
   // TAP 1 — pick the combo. Straight to the confirm card, no further questions.
@@ -162,10 +165,22 @@ EXTRA
   await logic.handleMessage(C2, "Kiran", "", "c:2");
   const card = last(C2);
   ok("one tap goes straight to the confirm card", card.type === "buttons");
-  ok("card shows the chosen tiffin", /Tiffin \(Sev Tameta \+ Roti x5\)/.test(card.body || ""));
+  ok("card shows the chosen tiffin", /Tiffin \(Sev Tameta \+ 5 Roti\)/.test(card.body || ""));
   ok("card shows the saved address", /5 Park Rd/.test(card.body || ""));
   ok("card offers confirm, add-more and address change",
     ["submit", "add_more", "addr:new"].every((id) => (card.buttons || []).some((b) => b.id === id)));
+
+  // Adding an extra must not look like it replaced the tiffin.
+  reset();
+  await logic.handleMessage(C2, "Kiran", "", "add_more");
+  ok("reopened menu shows the running cart, so nothing looks lost",
+    /Abhi tak/.test(last(C2).body || "") && /Sev Tameta/.test(last(C2).body || ""));
+  reset();
+  await logic.handleMessage(C2, "Kiran", "", "x:0");
+  const both = last(C2).body || "";
+  ok("extra ADDS to the tiffin instead of replacing it",
+    /Tiffin \(Sev Tameta \+ 5 Roti\)/.test(both) && /Dhokla/.test(both));
+  ok("total covers tiffin + extra", new RegExp(`Total: ₹${cfg.biz.tiffinPrice + 40}`).test(both));
 
   // Quantity without an extra round trip.
   reset();
@@ -185,7 +200,7 @@ EXTRA
   reset();
   await logic.handleMessage(C2, "Kiran", "", "submit");
   const tiffinOrder = orders[orders.length - 1];
-  ok("order line names the chosen combo", /Sev Tameta \+ Roti x5/.test(tiffinOrder.items[0].name));
+  ok("order line names the chosen combo", /Sev Tameta \+ 5 Roti/.test(tiffinOrder.items[0].name));
   ok("order amount uses the tiffin price", tiffinOrder.amount === cfg.biz.tiffinPrice * 2);
 
   console.log("\n=== BROADCAST: the menu customers receive is orderable ===");
@@ -231,7 +246,7 @@ INCLUDED
   await logic.handleMessage(C3, "Meena", "", "t:p:1:0");
   await logic.handleMessage(C3, "Meena", "", "t:qty:1");
   ok("fallback still builds a correct cart line",
-    /Sev Tameta \+ Roti x5/.test(last(C3).body || ""));
+    /Sev Tameta \+ 5 Roti/.test(last(C3).body || ""));
 
   console.log(`\n${fail === 0 ? "🎉 ALL PASS" : "⚠️  SOME FAILED"} — ${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
