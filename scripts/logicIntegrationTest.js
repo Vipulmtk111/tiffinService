@@ -188,6 +188,17 @@ EXTRA
   ok("order line names the chosen combo", /Sev Tameta \+ Roti x5/.test(tiffinOrder.items[0].name));
   ok("order amount uses the tiffin price", tiffinOrder.amount === cfg.biz.tiffinPrice * 2);
 
+  console.log("\n=== BROADCAST: the menu customers receive is orderable ===");
+  const jobs = require("../src/jobs");
+  reset();
+  await jobs.broadcastMenu({ force: true });
+  const toCust = out.filter((mm) => mm.to === C2);
+  ok("broadcast sends an interactive message, not plain text", toCust.some((mm) => mm.type === "list"));
+  ok("broadcast rows are tappable combos", (toCust.find((mm) => mm.type === "list")?.sections || [])
+    .flatMap((x) => x.rows).some((r) => /^c:\d+$/.test(r.id)));
+  ok("no 'press the button' line without a button",
+    !out.some((mm) => mm.type === "text" && /button dabayein/i.test(mm.text || "")));
+
   // A big menu blows past the 10-row list cap, so it must degrade to step-by-step.
   console.log("\n=== CUSTOMER: too many combos -> step-by-step fallback ===");
   reset();

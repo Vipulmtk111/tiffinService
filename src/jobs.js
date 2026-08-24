@@ -2,7 +2,7 @@ const cron = require("node-cron");
 const cfg = require("./config");
 const sheets = require("./sheets");
 const wa = require("./whatsapp");
-const { renderMenu } = require("./logic");
+const { renderMenu, sendMenuTo } = require("./logic");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -34,14 +34,15 @@ async function broadcastMenu({ force = false } = {}) {
   if (!force && alreadyBroadcast()) {
     return wa.sendText(cfg.biz.ownerPhone, `ℹ️ Aaj ka menu already broadcast ho chuka hai. Dobara bhejne ke liye "broadcast" bhejein.`);
   }
-  const text = renderMenu(menu);
   const customers = await sheets.getAllCustomers();
   let sent = 0;
   for (const c of customers) {
-    // NOTE: free-form text only reaches customers active in last 24h.
-    // For others, create+approve a 'daily_menu' template in Meta Business Manager,
-    // then switch this to wa.sendTemplate(c.phone, 'daily_menu', [...]).
-    await wa.sendText(c.phone, text);
+    // The same tappable menu a customer gets on "hi" — so the broadcast itself is
+    // orderable, instead of plain text pointing at a button that isn't there.
+    // NOTE: interactive messages, like free-form text, only reach customers active
+    // in the last 24h. For the rest, create+approve a 'daily_menu' template in Meta
+    // Business Manager and send that first to reopen the window.
+    await sendMenuTo(c.phone, menu);
     sent++;
     await sleep(1100);
   }

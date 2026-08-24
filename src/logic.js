@@ -20,8 +20,12 @@ function freshState() { return { cart: [], awaiting: null, picks: [], groupIdx: 
 // ---------- rendering ----------
 const optLabel = (o) => (o.qty ? `${o.name} x${o.qty}` : o.name);
 
-/** Human-readable menu from the parsed model. Used for the broadcast and the owner draft. */
-function renderMenuModel(m) {
+/**
+ * Human-readable menu from the parsed model.
+ * `cta` appends the "tap the button" line — only true where a button/list is
+ * actually attached, never on the owner's draft or the morning reminder.
+ */
+function renderMenuModel(m, { cta = false } = {}) {
   const b = cfg.biz;
   let out = `🍱 *${b.shopName}* — aaj ka menu\n`;
 
@@ -36,7 +40,7 @@ function renderMenuModel(m) {
     out += `\n*EXTRA*\n` + m.extras.map((e) => `• ${e.name} — ₹${e.price}`).join("\n") + "\n";
   }
 
-  out += `\nOrder karne ke liye niche button dabayein 👇`;
+  if (cta) out += `\nOrder karne ke liye niche button dabayein 👇`;
   return out;
 }
 
@@ -80,7 +84,7 @@ async function sendMenuInteractive(phone, m) {
   const isTiffin = menuParse.isTiffinMenu(m);
 
   // Flat priced list only (no tiffin) -> behave like a plain item list.
-  if (!isTiffin) return sendExtrasList(phone, m, renderMenuModel(m));
+  if (!isTiffin) return sendExtrasList(phone, m, renderMenuModel(m, { cta: true }));
 
   // Preferred path: one list, one tap picks the whole tiffin.
   if (comboListFits(m)) return sendComboList(phone, m);
@@ -88,7 +92,7 @@ async function sendMenuInteractive(phone, m) {
   // Too many combinations for one list -> ask group by group.
   const buttons = [{ id: "t:start", title: "🍱 Tiffin order" }];
   if (m.extras.length) buttons.push({ id: "x:list", title: "➕ Extra items" });
-  return wa.sendButtons(phone, { body: renderMenuModel(m), buttons });
+  return wa.sendButtons(phone, { body: renderMenuModel(m, { cta: true }), buttons });
 }
 
 /** The whole day's menu as a single tappable list. */
@@ -301,6 +305,11 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
   return null;
 }
 
+/** Send today's menu to one phone as the interactive, tappable message. */
+async function sendMenuTo(phone, rows) {
+  return sendMenuInteractive(phone, menuParse.fromSheetRows(rows || []));
+}
+
 /** Main entry: handle one incoming customer message / tap. */
 async function handleMessage(phone, name, text, selectionId = null) {
   const b = cfg.biz;
@@ -390,5 +399,5 @@ async function handleMessage(phone, name, text, selectionId = null) {
 
 module.exports = {
   handleMessage, setPaused, isPaused,
-  renderMenu, menuText: renderMenu, renderMenuModel,
+  renderMenu, menuText: renderMenu, renderMenuModel, sendMenuTo,
 };
