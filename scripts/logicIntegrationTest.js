@@ -174,6 +174,18 @@ EXTRA
 
   reset();
   await logic.handleMessage(C2, "Kiran", "", "review");
+  ok("returning customer is shown the saved address, not billed to it silently",
+    /5 Park Rd/.test(last(C2).body || "") && (last(C2).buttons || []).some((b) => b.id === "addr:same"));
+
+  reset();
+  await logic.handleMessage(C2, "Kiran", "", "addr:new");
+  ok("'naya address' asks for a new one", /address/i.test(last(C2).text || ""));
+  reset();
+  await logic.handleMessage(C2, "Kiran", "9 Lake View, Satellite", null);
+  ok("typed address is saved and review follows", customers.get(C2).address === "9 Lake View, Satellite");
+  ok("review shows the NEW address", /9 Lake View/.test(last(C2).body || ""));
+
+  reset();
   await logic.handleMessage(C2, "Kiran", "", "submit");
   const tiffinOrder = orders[orders.length - 1];
   ok("order line names the chosen combo", /Sev Tameta \+ Roti x5/.test(tiffinOrder.items[0].name));

@@ -15,7 +15,7 @@ let ordersPaused = false;
 function setPaused(v) { ordersPaused = v; }
 function isPaused() { return ordersPaused; }
 
-function freshState() { return { cart: [], awaiting: null, pendingItem: null, picks: [], groupIdx: 0 }; }
+function freshState() { return { cart: [], awaiting: null, pendingItem: null, picks: [], groupIdx: 0, addressOk: false }; }
 
 // ---------- rendering ----------
 const optLabel = (o) => (o.qty ? `${o.name} x${o.qty}` : o.name);
@@ -145,6 +145,17 @@ async function reviewOrSubmit(phone, name, s) {
     s.awaiting = "address"; state.set(phone, s);
     return wa.sendText(phone, `${cartSummary(s.cart)}\nTotal: ₹${cartTotal(s.cart)} 👍\n\nAapka delivery address bhejein (ghar/flat no, building, area) 🏠`);
   }
+  // Returning customer: never reuse the saved address silently — show it and ask.
+  if (!s.addressOk) {
+    s.awaiting = null; state.set(phone, s);
+    return wa.sendButtons(phone, {
+      body: `${cartSummary(s.cart)}\nTotal: ₹${cartTotal(s.cart)} 👍\n\n🏠 Pichli baar wala address:\n*${customer.address}*\n\nYahi bhejein ya naya address?`,
+      buttons: [
+        { id: "addr:same", title: "✅ Yahi address" },
+        { id: "addr:new", title: "✏️ Naya address" },
+      ],
+    });
+  }
   s.awaiting = null; state.set(phone, s);
   return wa.sendButtons(phone, {
     body: `🧾 *Order review*\n${cartSummary(s.cart)}\n— — —\nTotal: ₹${cartTotal(s.cart)}\nDeliver: ${customer.address}`,
@@ -217,6 +228,12 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
     return askQty(phone, e);
   }
 
+  if (selectionId === "addr:same") { s.addressOk = true; state.set(phone, s); return reviewOrSubmit(phone, name, s); }
+  if (selectionId === "addr:new") {
+    s.awaiting = "address"; s.addressOk = false; state.set(phone, s);
+    return wa.sendText(phone, `Naya delivery address bhejein 🏠\n(ghar/flat no, building, area)`);
+  }
+
   if (selectionId.startsWith("qty:")) return addToCart(phone, name, s, Number(selectionId.slice(4)) || 1);
   if (selectionId === "add_more") return sendMenuInteractive(phone, m);
   if (selectionId === "review") return reviewOrSubmit(phone, name, s);
@@ -262,7 +279,7 @@ async function handleMessage(phone, name, text, selectionId = null) {
   // ===== awaiting address =====
   if (s.awaiting === "address" && text.trim().length > 6) {
     await sheets.upsertCustomer({ phone, name, address: text.trim() });
-    s.awaiting = null; state.set(phone, s);
+    s.awaiting = null; s.addressOk = true; state.set(phone, s);
     await wa.sendText(phone, `Address save ho gaya ✅`);
     return reviewOrSubmit(phone, name, s);
   }
