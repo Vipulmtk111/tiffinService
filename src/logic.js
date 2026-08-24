@@ -126,7 +126,7 @@ async function sendComboList(phone, m, s = null) {
     return {
       id,
       title: qty ? `✅ ${label}` : `  • ${label}`,
-      description: qty ? `₹${rupees} · ${qty}× add kiya` : `₹${rupees}`,
+      description: qty ? `  ₹${rupees} · ${qty}× order mein` : `  ₹${rupees}`,
     };
   };
 
@@ -147,10 +147,20 @@ async function sendComboList(phone, m, s = null) {
     });
   }
 
+  // Extras deliberately do NOT live in this list. A WhatsApp list is a radio
+  // group: tapping an extra here would visually move the selection off the
+  // tiffin row and read as "my tiffin was removed". Instead one navigation row
+  // opens a separate extras message, where each tap adds without disturbing
+  // this one. Tiffin = radio (pick one), extras = add as many as you like.
   if (m.extras.length) {
+    const added = m.extras.filter((e) => inCart.has(e.name));
     sections.push({
       title: "➕ EXTRA",
-      rows: m.extras.map((e, i) => row(`x:${i}`, e.name, e.name, e.price)),
+      rows: [{
+        id: "x:list",
+        title: added.length ? `✅ Extra (${added.length})` : `  • Extra items`,
+        description: `  ${m.extras.map((e) => e.name).join(", ")}`,
+      }],
     });
   }
 
@@ -168,15 +178,33 @@ async function sendComboList(phone, m, s = null) {
   });
 }
 
-async function sendExtrasList(phone, m, body) {
+/**
+ * Extras in their own message, so adding one never touches the tiffin list.
+ * Each tap adds that extra and comes back to the confirm card; tapping "➕ Extra"
+ * again reopens this with the already-added ones ticked, which is as close to
+ * checkbox behaviour as a WhatsApp list allows.
+ */
+async function sendExtrasList(phone, m, body, s = null) {
   if (!m.extras.length) return wa.sendText(phone, `Aaj koi extra item nahi hai 🙏`);
+  const inCart = new Map((s?.cart || []).map((i) => [i.name, i.qty]));
+  const tiffin = (s?.cart || []).filter((i) => i.name.startsWith("Tiffin"));
+
   return wa.sendList(phone, {
     header: "Extra items ➕",
-    body: body || `Extra mein kya lenge?`,
-    buttonText: "Select",
+    body: body || (tiffin.length
+      ? `✅ Aapka tiffin order mein hai:\n${tiffin.map((i) => `• ${i.qty}× ${i.name}`).join("\n")}\n\nExtra add karein — tiffin waise ka waisa rahega 👇`
+      : `Extra mein kya lenge? 👇`),
+    buttonText: "Extra chunein ➕",
     sections: [{
-      title: "Extra",
-      rows: m.extras.map((e, i) => ({ id: `x:${i}`, title: e.name, description: `₹${e.price}` })),
+      title: "➕ EXTRA",
+      rows: m.extras.map((e, i) => {
+        const qty = inCart.get(e.name);
+        return {
+          id: `x:${i}`,
+          title: qty ? `✅ ${e.name}` : `  • ${e.name}`,
+          description: qty ? `  ₹${e.price} · ${qty}× order mein` : `  ₹${e.price}`,
+        };
+      }),
     }],
   });
 }
@@ -324,7 +352,7 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
 
   if (selectionId === "x:list") {
     if (!menuAvailable) return notReady();
-    return sendExtrasList(phone, m);
+    return sendExtrasList(phone, m, null, s);
   }
 
   if (/^x:\d+$/.test(selectionId)) {

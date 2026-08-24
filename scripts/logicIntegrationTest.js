@@ -158,7 +158,10 @@ EXTRA
   ok("sabji is the section heading, bread the row", (menuList.sections || [])
     .some((sec) => /SEV TAMETA/.test(sec.title) && sec.rows.some((r) => /• 5 Roti$/.test(r.title))));
   ok("no row title is truncated by WhatsApp's 24-char cap", rows.every((r) => r.title.length <= 24));
-  ok("extras share the same list", rows.some((r) => r.id === "x:0" && /Dhokla$/.test(r.title)));
+  // Extras must NOT be tappable items inside the tiffin list — a list is a radio
+  // group, so tapping one there would visually deselect the tiffin.
+  ok("tiffin list holds no extra items, only a link to them",
+    !rows.some((r) => /^x:\d+$/.test(r.id)) && rows.some((r) => r.id === "x:list"));
 
   // TAP 1 — pick the combo. Straight to the confirm card, no further questions.
   reset();
@@ -177,11 +180,21 @@ EXTRA
     /Abhi tak/.test(last(C2).body || "") && /Sev Tameta/.test(last(C2).body || ""));
   const reopened = (last(C2).sections || []).flatMap((x) => x.rows);
   ok("the row already in the cart carries a ✅",
-    reopened.some((r) => r.id === "c:2" && r.title.startsWith("✅") && /add kiya/.test(r.description)));
+    reopened.some((r) => r.id === "c:2" && r.title.startsWith("✅") && /order mein/.test(r.description)));
   ok("rows not in the cart stay unticked and indented",
     reopened.filter((r) => r.id !== "c:2").every((r) => !r.title.startsWith("✅") && /^  • /.test(r.title)));
+  ok("price is indented to line up with the row title",
+    reopened.every((r) => r.description.startsWith("  ")));
   ok("section headings are visually distinct from their rows",
     (last(C2).sections || []).every((sec) => /^(🍛|➕|🍱) [A-Z]/u.test(sec.title)));
+  // The extras screen is its own message, so the tiffin list is never touched.
+  reset();
+  await logic.handleMessage(C2, "Kiran", "", "x:list");
+  const xs = last(C2);
+  ok("extras open in a separate message", xs.type === "list");
+  ok("extras screen restates the tiffin already in the order", /Sev Tameta/.test(xs.body || ""));
+  ok("extras screen lists the extras themselves", (xs.sections || []).flatMap((x) => x.rows).some((r) => r.id === "x:0"));
+
   reset();
   await logic.handleMessage(C2, "Kiran", "", "x:0");
   const both = last(C2).body || "";
