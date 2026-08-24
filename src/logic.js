@@ -148,11 +148,6 @@ async function sendComboList(phone, m, s = null) {
     });
   }
 
-  // Offered ONLY while the cart is empty. A WhatsApp list is a single radio
-  // group, so tapping any row here - a navigation row included - moves the
-  // selection off the tiffin row the customer just picked, which reads as
-  // "my tiffin was removed". Once something is in the cart, extras are
-  // reached from the confirm card instead, where buttons hold no such state.
   // No extras row here on purpose. This list has ONE job - pick the tiffin -
   // and a list is a single radio group, so any other row would move the
   // selection off the tiffin. Extras follow automatically as step 2.
@@ -191,28 +186,40 @@ async function sendComboList(phone, m, s = null) {
  * only works with 2 extras or fewer; beyond that we fall back to the list.
  */
 const TOGGLE_BUTTON_MAX = 2;
+// Taps cycle an extra's quantity up to this, then clear it. Kept small so
+// undoing never takes more than one extra tap.
+const TAP_QTY_MAX = 3;
 
 function extrasFitButtons(m) { return m.extras.length > 0 && m.extras.length <= TOGGLE_BUTTON_MAX; }
 
 async function sendExtrasToggle(phone, m, s) {
-  const inCart = new Set((s?.cart || []).map((i) => i.name));
+  const qtyOf = (nm) => ((s?.cart || []).find((i) => i.name === nm) || {}).qty || 0;
   const tiffins = (s?.cart || []).filter((i) => i.name.startsWith("Tiffin"));
 
-  const lines = m.extras.map((e) => `${inCart.has(e.name) ? "☑" : "☐"} ${e.name} — ₹${e.price}`).join("\n");
+  const lines = m.extras.map((e) => {
+    const q = qtyOf(e.name);
+    if (!q) return `\u2610 ${e.name} \u2014 \u20b9${e.price}`;
+    return `\u2611 ${e.name} \u2014 ${q}\u00d7 \u20b9${e.price} = \u20b9${q * e.price}`;
+  }).join("\n");
+
   const head = tiffins.length
-    ? `☑ ${tiffins.map((i) => `${i.qty}× ${i.name}`).join("\n☑ ")}\n\n`
+    ? `\u2611 ${tiffins.map((i) => `${i.qty}\u00d7 ${i.name}`).join("\n\u2611 ")}\n\n`
     : "";
 
-  const picked = m.extras.some((e) => inCart.has(e.name));
+  const picked = m.extras.some((e) => qtyOf(e.name) > 0);
   return wa.sendButtons(phone, {
-    body: `${head}*Step 2 — Extra chahiye?* (optional)\n${lines}\n\n` +
-      `— — —\n*Total: ₹${cartTotal(s?.cart || [])}*`,
+    body: `${head}*Step 2 \u2014 Extra chahiye?* (optional)\n${lines}\n\n` +
+      `\u2014 \u2014 \u2014\n*Total: \u20b9${cartTotal(s?.cart || [])}*\n\n` +
+      `(dobara tap karne se quantity badhegi \u00b7 ${TAP_QTY_MAX}\u00d7 ke baad hat jayega)`,
     buttons: [
-      ...m.extras.map((e, i) => ({
-        id: `x:${i}`,
-        title: `${inCart.has(e.name) ? "☑" : "☐"} ${e.name}`,
-      })),
-      { id: "review", title: picked ? "✅ Aage badhein" : "⏭️ Nahi chahiye" },
+      ...m.extras.map((e, i) => {
+        const q = qtyOf(e.name);
+        return {
+          id: `x:${i}`,
+          title: q > 1 ? `\u2611 ${q}\u00d7 ${e.name}` : q ? `\u2611 ${e.name}` : `\u2610 ${e.name}`,
+        };
+      }),
+      { id: "review", title: picked ? "\u2705 Aage badhein" : "\u23ed\ufe0f Nahi chahiye" },
     ],
   });
 }
@@ -433,14 +440,18 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
     if (!menuAvailable) return notReady();
     const e = m.extras[Number(selectionId.slice(2))];
     if (!e) return wa.sendText(phone, `Ye item aaj available nahi 🙏`);
-    // Toggle, not add: tapping a ticked extra unticks it. That is what makes a
-    // radio-only list behave like a checkbox from the customer's side.
+    // Each tap cycles the quantity: none -> 1 -> 2 -> ... -> max -> none again.
+    // One control does both jobs, so ordering two samosas costs two taps and
+    // clearing them one more, with no extra screen or typing.
     const at = s.cart.findIndex((i) => i.name === e.name);
-    if (at >= 0) {
+    if (at < 0) {
+      addLine(s, e.name, e.price);
+    } else if (s.cart[at].qty < TAP_QTY_MAX) {
+      s.cart[at].qty += 1;
+      s.lastLine = e.name;
+    } else {
       s.cart.splice(at, 1);
       if (s.lastLine === e.name) s.lastLine = null;
-    } else {
-      addLine(s, e.name, e.price);
     }
     s.awaiting = null; state.set(phone, s);
     // Removing the last line empties the cart — go back to the menu, not a panel.
