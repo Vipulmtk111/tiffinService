@@ -126,7 +126,7 @@ async function sendComboList(phone, m, s = null) {
     return {
       id,
       title: qty ? `✅ ${label}` : `  • ${label}`,
-      description: qty ? `  ₹${rupees} · ${qty}× order mein` : `  ₹${rupees}`,
+      description: qty ? `    ₹${rupees} · ${qty}× order mein` : `    ₹${rupees}`,
     };
   };
 
@@ -147,19 +147,18 @@ async function sendComboList(phone, m, s = null) {
     });
   }
 
-  // Extras deliberately do NOT live in this list. A WhatsApp list is a radio
-  // group: tapping an extra here would visually move the selection off the
-  // tiffin row and read as "my tiffin was removed". Instead one navigation row
-  // opens a separate extras message, where each tap adds without disturbing
-  // this one. Tiffin = radio (pick one), extras = add as many as you like.
-  if (m.extras.length) {
-    const added = m.extras.filter((e) => inCart.has(e.name));
+  // Offered ONLY while the cart is empty. A WhatsApp list is a single radio
+  // group, so tapping any row here - a navigation row included - moves the
+  // selection off the tiffin row the customer just picked, which reads as
+  // "my tiffin was removed". Once something is in the cart, extras are
+  // reached from the confirm card instead, where buttons hold no such state.
+  if (m.extras.length && !inCart.size) {
     sections.push({
       title: "➕ EXTRA",
       rows: [{
         id: "x:list",
-        title: added.length ? `✅ Extra (${added.length})` : `  • Extra items`,
-        description: `  ${m.extras.map((e) => e.name).join(", ")}`,
+        title: `  ➜ Extra items dekhein`,
+        description: `    ${m.extras.map((e) => `${e.name} ₹${e.price}`).join(", ")} — alag se`,
       }],
     });
   }
@@ -202,7 +201,7 @@ async function sendExtrasList(phone, m, body, s = null) {
         return {
           id: `x:${i}`,
           title: qty ? `✅ ${e.name}` : `  • ${e.name}`,
-          description: qty ? `  ₹${e.price} · ${qty}× order mein` : `  ₹${e.price}`,
+          description: qty ? `    ₹${e.price} · ${qty}× order mein` : `    ₹${e.price}`,
         };
       }),
     }],
@@ -258,6 +257,27 @@ function addLine(s, name, price, qty = 1) {
   return s;
 }
 
+/**
+ * "Aur add karein" from the confirm card. Buttons, not list rows — a button
+ * carries no selection state, so choosing where to go next can never appear to
+ * undo what is already in the cart. Each branch then sends a FRESH list used for
+ * one purpose only: tiffins (pick one) or extras (add one).
+ */
+async function sendAddChooser(phone, m, s) {
+  const hasTiffin = menuParse.isTiffinMenu(m);
+  if (!m.extras.length) return sendMenuInteractive(phone, m, s);
+  if (!hasTiffin) return sendExtrasList(phone, m, null, s);
+  return wa.sendButtons(phone, {
+    body: `🧾 *Abhi tak aapke order mein:*\n${cartSummary(s.cart)}\n— — —\nTotal: ₹${cartTotal(s.cart)}\n\n` +
+      `Ye sab rahega ✅ — aur kya add karein?`,
+    buttons: [
+      { id: "add:tiffin", title: "🍱 Aur tiffin" },
+      { id: "add:extra", title: "➕ Extra" },
+      { id: "review", title: "🧾 Bas, review" },
+    ],
+  });
+}
+
 async function askAddMore(phone, s, m) {
   const buttons = [];
   if (menuParse.isTiffinMenu(m)) buttons.push({ id: "t:start", title: "🍱 Aur tiffin" });
@@ -292,7 +312,7 @@ async function reviewOrSubmit(phone, name, s) {
       `(quantity badalni ho toh number bhejein · cancel karne ke liye "cancel")`,
     buttons: [
       { id: "submit", title: "✅ Confirm order" },
-      { id: "add_more", title: "➕ Add more" },
+      { id: "add_more", title: "➕ Aur add karein" },
       { id: "addr:new", title: "✏️ Address" },
     ],
   });
@@ -380,7 +400,9 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
     return wa.sendText(phone, `Naya delivery address bhejein 🏠\n(ghar/flat no, building, area)`);
   }
 
-  if (selectionId === "add_more") return sendMenuInteractive(phone, m, s);
+  if (selectionId === "add_more") return sendAddChooser(phone, m, s);
+  if (selectionId === "add:tiffin") return sendMenuInteractive(phone, m, s);
+  if (selectionId === "add:extra") return sendExtrasList(phone, m, null, s);
   if (selectionId === "review") return reviewOrSubmit(phone, name, s);
   if (selectionId === "submit") return s.cart.length ? placeOrder(phone, name, s) : wa.sendText(phone, `Cart khali hai 🙂`);
   if (selectionId === "edit") {

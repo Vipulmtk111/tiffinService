@@ -176,20 +176,27 @@ EXTRA
   // Adding an extra must not look like it replaced the tiffin.
   reset();
   await logic.handleMessage(C2, "Kiran", "", "add_more");
-  ok("reopened menu shows the running cart, so nothing looks lost",
-    /Abhi tak/.test(last(C2).body || "") && /Sev Tameta/.test(last(C2).body || ""));
+  const chooser = last(C2);
+  ok("'aur add karein' offers BUTTONS, which carry no selection state",
+    chooser.type === "buttons" &&
+    ["add:tiffin", "add:extra", "review"].every((id) => (chooser.buttons || []).some((b) => b.id === id)));
+  ok("chooser restates what is already in the order", /Sev Tameta/.test(chooser.body || ""));
+
+  reset();
+  await logic.handleMessage(C2, "Kiran", "", "add:tiffin");
+  ok("reopened tiffin list shows the running cart", /Abhi tak/.test(last(C2).body || ""));
   const reopened = (last(C2).sections || []).flatMap((x) => x.rows);
   ok("the row already in the cart carries a ✅",
     reopened.some((r) => r.id === "c:2" && r.title.startsWith("✅") && /order mein/.test(r.description)));
   ok("rows not in the cart stay unticked and indented",
     reopened.filter((r) => r.id !== "c:2").every((r) => !r.title.startsWith("✅") && /^  • /.test(r.title)));
-  ok("price is indented to line up with the row title",
-    reopened.every((r) => r.description.startsWith("  ")));
-  ok("section headings are visually distinct from their rows",
-    (last(C2).sections || []).every((sec) => /^(🍛|➕|🍱) [A-Z]/u.test(sec.title)));
+  ok("price is indented past the bullet, under the item text",
+    reopened.every((r) => r.description.startsWith("    ")));
+  ok("no extras row inside the tiffin list once the cart has something",
+    !reopened.some((r) => r.id === "x:list"));
   // The extras screen is its own message, so the tiffin list is never touched.
   reset();
-  await logic.handleMessage(C2, "Kiran", "", "x:list");
+  await logic.handleMessage(C2, "Kiran", "", "add:extra");
   const xs = last(C2);
   ok("extras open in a separate message", xs.type === "list");
   ok("extras screen restates the tiffin already in the order", /Sev Tameta/.test(xs.body || ""));
