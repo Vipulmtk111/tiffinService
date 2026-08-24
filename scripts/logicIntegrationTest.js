@@ -58,6 +58,7 @@ sheets.upsertCustomer = async ({ phone, name, address }) => {
 sheets.addOrder = async (o) => { orders.push(o); return "20260722-001"; };
 sheets.getOrders = async () => orders.map((o) => ({ ...o, status: "confirmed", payment: "pending" }));
 
+const menuParse = require("../src/menuParse");
 const logic = require("../src/logic");
 const { handleOwner } = require("../src/ownerCommands");
 
@@ -204,9 +205,11 @@ EXTRA
   reset();
   await logic.handleMessage(C2, "Kiran", "", "add:extra");
   const xs = last(C2);
-  ok("extras open in a separate message", xs.type === "list");
+  ok("extras open in a separate message", xs.type === "buttons");
   ok("extras screen restates the tiffin already in the order", /Sev Tameta/.test(xs.body || ""));
-  ok("extras screen lists the extras themselves", (xs.sections || []).flatMap((x) => x.rows).some((r) => r.id === "x:0"));
+  ok("each extra is its own toggle button, not one shared row",
+    (xs.buttons || []).filter((b) => /^x:\d+$/.test(b.id)).length === menuParse.fromSheetRows(menu).extras.length);
+  ok("buttons carry the tick state", (xs.buttons || []).every((b) => !/^x:/.test(b.id) || /^[☑☐]/u.test(b.title)));
 
   reset();
   await logic.handleMessage(C2, "Kiran", "", "x:0");
@@ -215,7 +218,10 @@ EXTRA
     /Tiffin \(Sev Tameta \+ 5 Roti\)/.test(both) && /Dhokla/.test(both));
   ok("total covers tiffin + extra", new RegExp(`Total: ₹${cfg.biz.tiffinPrice + 40}`).test(both));
 
-  // Quantity without an extra round trip.
+  // Quantity without an extra round trip. Toggling an extra leaves the customer
+  // on the toggle screen, so step back to the order panel first.
+  reset();
+  await logic.handleMessage(C2, "Kiran", "", "review");
   reset();
   await logic.handleMessage(C2, "Kiran", "2", null);
   ok("a bare number changes the tiffin quantity", new RegExp(`${cfg.biz.tiffinPrice * 2}`).test(last(C2).body || ""));
@@ -343,9 +349,9 @@ INCLUDED
 
   reset();
   await logic.handleMessage(C6, "Nita", "", "add:extra");
-  const xrows = (last(C6).sections || []).flatMap((x) => x.rows);
-  ok("extras list shows the ticked one as ticked",
-    xrows.some((r) => r.id === "x:0" && r.title.startsWith("☑") && /hatayein/.test(r.description)));
+
+  ok("reopened extras screen shows the ticked one as ticked",
+    (last(C6).buttons || []).some((b) => b.id === "x:0" && b.title.startsWith("☑")));
 
   reset();
   await logic.handleMessage(C6, "Nita", "", "x:0");

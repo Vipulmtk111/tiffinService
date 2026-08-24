@@ -184,6 +184,50 @@ async function sendComboList(phone, m, s = null) {
  * again reopens this with the already-added ones ticked, which is as close to
  * checkbox behaviour as a WhatsApp list allows.
  */
+/**
+ * Extras as genuine toggle BUTTONS — the closest WhatsApp gets to checkboxes
+ * outside Flows.
+ *
+ * A list is a radio group: it shows one selection and moving it looks like the
+ * previous pick was cancelled. Reply buttons hold no selection state at all, so
+ * each tap can simply flip an item on or off and the message re-renders with
+ * ☑ / ☐ in the button labels themselves. Nothing ever appears to deselect.
+ *
+ * WhatsApp caps a message at 3 buttons, and one is needed for "done", so this
+ * only works with 2 extras or fewer; beyond that we fall back to the list.
+ */
+const TOGGLE_BUTTON_MAX = 2;
+
+function extrasFitButtons(m) { return m.extras.length > 0 && m.extras.length <= TOGGLE_BUTTON_MAX; }
+
+async function sendExtrasToggle(phone, m, s) {
+  const inCart = new Set((s?.cart || []).map((i) => i.name));
+  const tiffins = (s?.cart || []).filter((i) => i.name.startsWith("Tiffin"));
+
+  const lines = m.extras.map((e) => `${inCart.has(e.name) ? "☑" : "☐"} ${e.name} — ₹${e.price}`).join("\n");
+  const head = tiffins.length
+    ? `☑ ${tiffins.map((i) => `${i.qty}× ${i.name}`).join("\n☑ ")}\n\n`
+    : "";
+
+  return wa.sendButtons(phone, {
+    body: `🧾 *Aapka order*\n\n${head}*Extra* — jitne chahein select karein:\n${lines}\n\n` +
+      `— — —\n*Total: ₹${cartTotal(s?.cart || [])}*\n\n` +
+      `(neeche button dabakar on/off karein)`,
+    buttons: [
+      ...m.extras.map((e, i) => ({
+        id: `x:${i}`,
+        title: `${inCart.has(e.name) ? "☑" : "☐"} ${e.name}`,
+      })),
+      { id: "review", title: "✅ Ho gaya" },
+    ],
+  });
+}
+
+/** Toggle buttons when they fit, otherwise the tick-marked list. */
+async function sendExtras(phone, m, s) {
+  return extrasFitButtons(m) ? sendExtrasToggle(phone, m, s) : sendExtrasList(phone, m, null, s);
+}
+
 async function sendExtrasList(phone, m, body, s = null) {
   if (!m.extras.length) return wa.sendText(phone, `Aaj koi extra item nahi hai 🙏`);
   const inCart = new Map((s?.cart || []).map((i) => [i.name, i.qty]));
@@ -419,7 +463,7 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
 
   if (selectionId === "x:list") {
     if (!menuAvailable) return notReady();
-    return sendExtrasList(phone, m, null, s);
+    return sendExtras(phone, m, s);
   }
 
   if (/^x:\d+$/.test(selectionId)) {
@@ -437,7 +481,9 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
     }
     s.awaiting = null; state.set(phone, s);
     // Removing the last line empties the cart — go back to the menu, not a panel.
-    if (!s.cart.length) return sendMenuInteractive(phone, m, s);
+    if (!s.cart.length && !extrasFitButtons(m)) return sendMenuInteractive(phone, m, s);
+    // With toggle buttons, stay on that message so ticking feels like a checkbox.
+    if (extrasFitButtons(m)) return sendExtrasToggle(phone, m, s);
     return reviewOrSubmit(phone, name, s);
   }
 
@@ -459,7 +505,7 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
 
   if (selectionId === "add_more") return sendAddChooser(phone, m, s);
   if (selectionId === "add:tiffin") return sendMenuInteractive(phone, m, s);
-  if (selectionId === "add:extra") return sendExtrasList(phone, m, null, s);
+  if (selectionId === "add:extra") return sendExtras(phone, m, s);
   if (selectionId === "review") return reviewOrSubmit(phone, name, s);
   if (selectionId === "submit") return s.cart.length ? placeOrder(phone, name, s) : wa.sendText(phone, `Cart khali hai 🙂`);
   if (selectionId === "edit") {
