@@ -14,7 +14,10 @@ brain.parseMenu = async () => ({
   ],
   needPrice: ["Palak Patra"],
 });
-brain.customerAnswer = async () => "Delivery 1-2 baje tak ho jati hai 🛵";
+// logic.js destructures customerAnswer at require time, so the stub has to be
+// indirect for a test to change the answer later.
+let answerImpl = async () => "Delivery 1-2 baje tak ho jati hai 🛵";
+brain.customerAnswer = async (...args) => answerImpl(...args);
 
 const wa = require("../src/whatsapp");
 
@@ -27,7 +30,12 @@ const sheets = require("../src/sheets");
 
 let pass = 0, fail = 0;
 const out = [];
-wa.sendText = async (to, text) => { out.push({ to, type: "text", text }); };
+let wamid = 0;
+wa.sendText = async (to, text) => {
+  const id = `wamid.${++wamid}`;
+  out.push({ to, type: "text", text, id });
+  return { messages: [{ id }] };
+};
 wa.sendList = async (to, o) => { out.push({ to, type: "list", ...o }); };
 wa.sendButtons = async (to, o) => { out.push({ to, type: "buttons", ...o }); };
 
@@ -372,6 +380,41 @@ INCLUDED
   ok("one more tap past the cap clears it", /☐ Dhokla/.test(panel4));
   ok("tiffin survives the whole cycle", /☑ 1\u00d7 Tiffin/.test(panel4));
   ok("total returns to the tiffin alone", new RegExp("Total: \u20b9" + cfg.biz.tiffinPrice).test(panel4));
+
+  console.log("\n=== CUSTOMER QUESTIONS: forward and answer ===");
+  const C7 = "919900000008";
+  customers.set(C7, { phone: C7, name: "Asha", address: "8 Green Park" });
+
+  // A mid-order address must never be mistaken for a question, however short.
+  reset();
+  await logic.handleMessage(C7, "Asha", "", "c:0");
+  await logic.handleMessage(C7, "Asha", "", "review");
+  reset();
+  await logic.handleMessage(C7, "Asha", "", "addr:new");
+  reset();
+  await logic.handleMessage(C7, "Asha", "A-12", null);
+  ok("a short address is accepted, not forwarded to the owner",
+    customers.get(C7).address === "A-12" && !out.some((m) => m.to === OWNER));
+
+  // A real question does go to the owner, and the owner can answer it.
+  answerImpl = async () => "FORWARD";
+  reset();
+  await logic.handleMessage(C7, "Asha", "50 tiffin ka bulk order ho payega?", null);
+  const fwd = out.find((m) => m.to === OWNER);
+  ok("a question the bot cannot answer reaches the owner", !!fwd && /bulk order/.test(fwd.text || ""));
+
+  reset();
+  await handleOwner("Haan bhai, kal subah tak ho jayega", null, fwd.id);
+  ok("owner's swipe-reply is delivered to the customer who asked",
+    out.some((m) => m.to === C7 && /kal subah tak/.test(m.text || "")));
+  ok("owner is told it was sent", out.some((m) => m.to === OWNER && /bhej diya/.test(m.text || "")));
+
+  reset();
+  await handleOwner("r ₹75 per tiffin bulk rate", null, null);
+  ok("\"r <jawab>\" answers the last customer who asked",
+    out.some((m) => m.to === C7 && /75 per tiffin/.test(m.text || "")));
+
+  answerImpl = async () => "Delivery 1-2 baje tak ho jati hai 🛵";
 
   console.log(`\n${fail === 0 ? "🎉 ALL PASS" : "⚠️  SOME FAILED"} — ${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);

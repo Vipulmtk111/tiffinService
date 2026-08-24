@@ -307,8 +307,37 @@ function addLine(s, name, price, qty = 1) {
   return s;
 }
 
+// Forwarded customer questions, keyed by the id of the message the OWNER
+// received. WhatsApp puts that id in context.id when the owner swipe-replies,
+// which is how a reply finds its way back to the right customer.
+const forwards = new Map();      // ownerMessageId -> { phone, name }
+let lastForward = null;          // fallback for "r <message>"
+
+function rememberForward(id, phone, name) {
+  if (!id) return;
+  forwards.set(id, { phone, name });
+  lastForward = { phone, name };
+  // Keep the map from growing without bound over a long-running process.
+  if (forwards.size > 500) forwards.delete(forwards.keys().next().value);
+}
+
+/** Who a swipe-reply belongs to, or null. */
+function forwardTarget(contextId) { return (contextId && forwards.get(contextId)) || null; }
+function lastForwardTarget() { return lastForward; }
+
 async function forwardToOwner(phone, name, text) {
-  await wa.sendText(cfg.biz.ownerPhone, `👤 ${name || phone}: "${text}"\n(customer query — reply karein)`);
+  const res = await wa.sendText(cfg.biz.ownerPhone,
+    `👤 *${name || phone}* ne pucha:\n"${text}"\n\n` +
+    `↩️ Is message pe reply karein — seedha customer ko chala jayega.\n` +
+    `(ya "r <jawab>" bhejein)`);
+  rememberForward(res?.messages?.[0]?.id, phone, name);
+}
+
+/** Owner's answer -> the customer who asked. Returns true when delivered. */
+async function replyToCustomer(target, text) {
+  if (!target?.phone) return false;
+  await wa.sendText(target.phone, `👨‍🍳 *${cfg.biz.shopName}*:\n${text}`);
+  return true;
 }
 
 /**
@@ -568,8 +597,15 @@ async function handleMessage(phone, name, text, selectionId = null) {
   }
 
   // ===== awaiting address =====
-  if (s.awaiting === "address" && text.trim().length > 6) {
-    await sheets.upsertCustomer({ phone, name, address: text.trim() });
+  // Once we've asked for an address, whatever the customer sends IS the address.
+  // A length rule here used to drop short ones through to the LLM and forward
+  // them to the owner, leaving the customer stuck mid-order.
+  if (s.awaiting === "address") {
+    const addr = text.trim();
+    if (addr.length < 3) {
+      return wa.sendText(phone, `Address thoda pura likhein 🙏\n(ghar/flat no, building, area)`);
+    }
+    await sheets.upsertCustomer({ phone, name, address: addr });
     s.awaiting = null; state.set(phone, s);
     await wa.sendText(phone, `Address save ho gaya ✅`);
     return reviewOrSubmit(phone, name, s);
@@ -622,4 +658,5 @@ async function handleMessage(phone, name, text, selectionId = null) {
 module.exports = {
   handleMessage, setPaused, isPaused,
   renderMenu, menuText: renderMenu, renderMenuModel, sendMenuTo, handleFlowOrder,
+  forwardTarget, lastForwardTarget, replyToCustomer,
 };

@@ -61,9 +61,29 @@ function applyPrices(text) {
 }
 
 /** Handle a message from OWNER_PHONE. Returns true if handled. */
-async function handleOwner(text, selectionId = null) {
+async function handleOwner(text, selectionId = null, contextId = null) {
   const owner = cfg.biz.ownerPhone;
   const t = (text || "").trim().toLowerCase();
+
+  // ----- answering a forwarded customer question -----
+  // Swipe-replying to the forwarded message is the natural gesture; WhatsApp
+  // sends the quoted message's id, which tells us exactly who asked.
+  const quoted = logic.forwardTarget(contextId);
+  if (quoted && text && !selectionId) {
+    await logic.replyToCustomer(quoted, text);
+    await wa.sendText(owner, `✅ ${quoted.name || quoted.phone} ko bhej diya.`);
+    return true;
+  }
+  // "r <jawab>" answers whoever asked last — for when the owner types a fresh
+  // message instead of replying to the forwarded one.
+  const rMatch = (text || "").match(/^r\s+(.+)$/is);
+  if (rMatch) {
+    const target = logic.lastForwardTarget();
+    if (!target) { await wa.sendText(owner, `Abhi koi customer sawaal pending nahi hai 🙂`); return true; }
+    await logic.replyToCustomer(target, rMatch[1].trim());
+    await wa.sendText(owner, `✅ ${target.name || target.phone} ko bhej diya.`);
+    return true;
+  }
 
   // ----- interactive taps for the menu draft -----
   if (selectionId === "menu_confirm" && pendingMenu) {
@@ -103,7 +123,7 @@ async function handleOwner(text, selectionId = null) {
 
   if (t === "help") {
     await wa.sendText(owner,
-      `Commands:\n📋 Aaj ka menu set karne ke liye menu paste karein — format dekhne ke liye "format" bhejein.\n\nlist — aaj ki order + delivery list\npaid <naam/number> — payment confirm\nbroadcast — menu dobara bhejo\nband / chalu — orders pause/resume\nsummary — aaj ka hisaab`);
+      `Commands:\n📋 Aaj ka menu set karne ke liye menu paste karein — format dekhne ke liye "format" bhejein.\n\nlist — aaj ki order + delivery list\nr <jawab> — customer ke sawaal ka jawab (ya us message pe reply karein)\npaid <naam/number> — payment confirm\nbroadcast — menu dobara bhejo\nband / chalu — orders pause/resume\nsummary — aaj ka hisaab`);
     return true;
   }
 

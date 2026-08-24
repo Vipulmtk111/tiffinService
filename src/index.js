@@ -43,6 +43,7 @@ app.post("/webhook", (req, res) => {
           if (seenIds.size > 2000) seenIds.clear();
 
           const phone = msg.from;
+          const contextId = msg.context?.id || null;
           const contact = (value.contacts || []).find((c) => c.wa_id === phone);
           const name = contact?.profile?.name || "";
 
@@ -75,7 +76,7 @@ app.post("/webhook", (req, res) => {
           const route = flowReply
             ? handleFlowOrder(phone, name, flowReply)
             : phone === cfg.biz.ownerPhone
-              ? handleOwner(text, selectionId)
+              ? handleOwner(text, selectionId, contextId)
               : handleMessage(phone, name, text, selectionId);
           route.catch((err) => console.error("[handler] error:", err));
         }
