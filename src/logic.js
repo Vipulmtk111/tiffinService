@@ -5,9 +5,9 @@ const wa = require("./whatsapp");
 const menuParse = require("./menuParse");
 
 // in-memory cart state: phone -> {
-//   cart:[{name,qty,price}], awaiting:'qty'|'tqty'|'address'|null,
-//   pendingItem:{name,price}|null,   // an EXTRA being quantified
-//   picks:[{name,qty}], groupIdx:0   // tiffin being configured
+//   cart:[{name,qty,price}], lastLine:name|null,
+//   awaiting:'tqty'|'address'|'confirm'|null,
+//   picks:[{name,qty}], groupIdx:0   // tiffin being configured (fallback path)
 // }
 const state = new Map();
 let ordersPaused = false;
@@ -15,7 +15,7 @@ let ordersPaused = false;
 function setPaused(v) { ordersPaused = v; }
 function isPaused() { return ordersPaused; }
 
-function freshState() { return { cart: [], awaiting: null, pendingItem: null, picks: [], groupIdx: 0, addressOk: false }; }
+function freshState() { return { cart: [], awaiting: null, picks: [], groupIdx: 0, lastLine: null }; }
 
 // ---------- rendering ----------
 const optLabel = (o) => (o.qty ? `${o.name} x${o.qty}` : o.name);
@@ -48,6 +48,33 @@ function cartSummary(cart) {
   return cart.map((i) => `${i.qty}× ${i.name} — ₹${i.price * i.qty}`).join("\n");
 }
 
+// ---------- combos: every sabji×bread pairing as one tappable row ----------
+// A WhatsApp list holds 10 rows in total, and combos multiply with each group
+// (2×2 = 4 fits; 3×4 = 12 does not). Above the cap we fall back to asking one
+// group at a time, so a big menu still works — just with more taps.
+const MAX_ROWS = 10;
+
+/** Cartesian product of the choice groups: [[optA, optB], ...]. */
+function buildCombos(m) {
+  if (!menuParse.isTiffinMenu(m)) return [];
+  let combos = [[]];
+  for (const g of m.groups) {
+    const next = [];
+    for (const picks of combos) for (const o of g.options) next.push([...picks, o]);
+    combos = next;
+  }
+  return combos;
+}
+
+const comboTitle = (picks) => (picks.length ? menuParse.comboLabel(picks) : "Tiffin");
+const comboCartName = (picks) => (picks.length ? `Tiffin (${menuParse.comboLabel(picks)})` : "Tiffin");
+
+/** Can the whole menu be shown as one tap-to-order list? */
+function comboListFits(m) {
+  const combos = buildCombos(m);
+  return combos.length > 0 && combos.length + m.extras.length <= MAX_ROWS;
+}
+
 // ---------- interactive senders ----------
 async function sendMenuInteractive(phone, m) {
   const isTiffin = menuParse.isTiffinMenu(m);
@@ -55,9 +82,38 @@ async function sendMenuInteractive(phone, m) {
   // Flat priced list only (no tiffin) -> behave like a plain item list.
   if (!isTiffin) return sendExtrasList(phone, m, renderMenuModel(m));
 
+  // Preferred path: one list, one tap picks the whole tiffin.
+  if (comboListFits(m)) return sendComboList(phone, m);
+
+  // Too many combinations for one list -> ask group by group.
   const buttons = [{ id: "t:start", title: "🍱 Tiffin order" }];
   if (m.extras.length) buttons.push({ id: "x:list", title: "➕ Extra items" });
   return wa.sendButtons(phone, { body: renderMenuModel(m), buttons });
+}
+
+/** The whole day's menu as a single tappable list. */
+async function sendComboList(phone, m) {
+  const price = m.tiffinPrice != null ? m.tiffinPrice : cfg.biz.tiffinPrice;
+  const combos = buildCombos(m);
+  const incl = m.included.length ? `\nSaath mein: ${m.included.map(optLabel).join(", ")}` : "";
+
+  const sections = [{
+    title: "Tiffin 🍱",
+    rows: combos.map((picks, i) => ({ id: `c:${i}`, title: comboTitle(picks), description: `₹${price}` })),
+  }];
+  if (m.extras.length) {
+    sections.push({
+      title: "Extra ➕",
+      rows: m.extras.map((e, i) => ({ id: `x:${i}`, title: e.name, description: `₹${e.price}` })),
+    });
+  }
+
+  return wa.sendList(phone, {
+    header: "Aaj ka menu 🍱",
+    body: `🍱 *${cfg.biz.shopName}*\nTiffin ₹${price}${incl}\n\nJo chahiye woh select karein 👇 Ek hi tap mein order.`,
+    buttonText: "Select 🍱",
+    sections,
+  });
 }
 
 async function sendExtrasList(phone, m, body) {
@@ -107,20 +163,19 @@ async function askTiffinQty(phone, s, m) {
 
 async function addTiffinToCart(phone, s, m, qty) {
   const price = m.tiffinPrice != null ? m.tiffinPrice : cfg.biz.tiffinPrice;
-  const name = `Tiffin (${menuParse.comboLabel(s.picks)})`;
-  const existing = s.cart.find((i) => i.name === name);
-  if (existing) existing.qty += qty;
-  else s.cart.push({ name, price, qty });
+  addLine(s, comboCartName(s.picks), price, qty);
   s.picks = []; s.groupIdx = 0; s.awaiting = null;
   state.set(phone, s);
   return askAddMore(phone, s, m);
 }
 
-async function askQty(phone, item) {
-  return wa.sendButtons(phone, {
-    body: `${item.name} (₹${item.price}) — kitne chahiye?\n(ya number type karein)`,
-    buttons: [{ id: "qty:1", title: "1" }, { id: "qty:2", title: "2" }, { id: "qty:3", title: "3" }],
-  });
+/** Add one line to the cart (or bump an existing one) and remember it as latest. */
+function addLine(s, name, price, qty = 1) {
+  const existing = s.cart.find((i) => i.name === name);
+  if (existing) existing.qty += qty;
+  else s.cart.push({ name, price, qty });
+  s.lastLine = name;
+  return s;
 }
 
 async function askAddMore(phone, s, m) {
@@ -138,6 +193,11 @@ async function forwardToOwner(phone, name, text) {
   await wa.sendText(cfg.biz.ownerPhone, `👤 ${name || phone}: "${text}"\n(customer query — reply karein)`);
 }
 
+/**
+ * The single confirm card — cart, total and the delivery address in one message.
+ * The saved address is shown (never applied silently) and changed from the same
+ * card, so a returning customer's whole order is two taps: pick, confirm.
+ */
 async function reviewOrSubmit(phone, name, s) {
   if (!s.cart.length) return wa.sendText(phone, `Cart khali hai 🙂 "menu" likh kar order shuru karein.`);
   const customer = await sheets.getCustomer(phone);
@@ -145,21 +205,15 @@ async function reviewOrSubmit(phone, name, s) {
     s.awaiting = "address"; state.set(phone, s);
     return wa.sendText(phone, `${cartSummary(s.cart)}\nTotal: ₹${cartTotal(s.cart)} 👍\n\nAapka delivery address bhejein (ghar/flat no, building, area) 🏠`);
   }
-  // Returning customer: never reuse the saved address silently — show it and ask.
-  if (!s.addressOk) {
-    s.awaiting = null; state.set(phone, s);
-    return wa.sendButtons(phone, {
-      body: `${cartSummary(s.cart)}\nTotal: ₹${cartTotal(s.cart)} 👍\n\n🏠 Pichli baar wala address:\n*${customer.address}*\n\nYahi bhejein ya naya address?`,
-      buttons: [
-        { id: "addr:same", title: "✅ Yahi address" },
-        { id: "addr:new", title: "✏️ Naya address" },
-      ],
-    });
-  }
-  s.awaiting = null; state.set(phone, s);
+  s.awaiting = "confirm"; state.set(phone, s);
   return wa.sendButtons(phone, {
-    body: `🧾 *Order review*\n${cartSummary(s.cart)}\n— — —\nTotal: ₹${cartTotal(s.cart)}\nDeliver: ${customer.address}`,
-    buttons: [{ id: "submit", title: "✅ Submit" }, { id: "edit", title: "✏️ Edit" }, { id: "cancel", title: "❌ Cancel" }],
+    body: `🧾 *Order*\n${cartSummary(s.cart)}\n— — —\nTotal: ₹${cartTotal(s.cart)}\n📍 ${customer.address}\n\n` +
+      `(quantity badalni ho toh number bhejein · cancel karne ke liye "cancel")`,
+    buttons: [
+      { id: "submit", title: "✅ Confirm order" },
+      { id: "add_more", title: "➕ Add more" },
+      { id: "addr:new", title: "✏️ Address" },
+    ],
   });
 }
 
@@ -172,16 +226,6 @@ async function placeOrder(phone, name, s) {
   });
   state.delete(phone);
   return wa.sendText(phone, `Order confirm ✅ (#${id})\n${cartSummary(s.cart)}\nTotal: ₹${amount}\nJald deliver ho jayega. Dhanyawad 🙏`);
-}
-
-async function addToCart(phone, name, s, qty) {
-  if (!s.pendingItem) return wa.sendText(phone, `Pehle koi item chunein 🙏 "menu" likhein.`);
-  const existing = s.cart.find((i) => i.name === s.pendingItem.name);
-  if (existing) existing.qty += qty;
-  else s.cart.push({ name: s.pendingItem.name, price: s.pendingItem.price, qty });
-  s.pendingItem = null; s.awaiting = null; state.set(phone, s);
-  const m = menuParse.fromSheetRows(await sheets.getMenu());
-  return askAddMore(phone, s, m);
 }
 
 // ---------- interactive taps ----------
@@ -224,22 +268,32 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
     if (!menuAvailable) return notReady();
     const e = m.extras[Number(selectionId.slice(2))];
     if (!e) return wa.sendText(phone, `Ye item aaj available nahi 🙏`);
-    s.pendingItem = { name: e.name, price: e.price }; s.awaiting = "qty"; state.set(phone, s);
-    return askQty(phone, e);
+    addLine(s, e.name, e.price);
+    s.awaiting = null; state.set(phone, s);
+    return reviewOrSubmit(phone, name, s);
   }
 
-  if (selectionId === "addr:same") { s.addressOk = true; state.set(phone, s); return reviewOrSubmit(phone, name, s); }
+  // One tap = the whole tiffin, then straight to the confirm card.
+  if (/^c:\d+$/.test(selectionId)) {
+    if (!menuAvailable) return notReady();
+    const picks = buildCombos(m)[Number(selectionId.slice(2))];
+    if (!picks) return wa.sendText(phone, `Ye option aaj available nahi 🙏`);
+    const price = m.tiffinPrice != null ? m.tiffinPrice : cfg.biz.tiffinPrice;
+    addLine(s, comboCartName(picks), price);
+    s.picks = []; s.groupIdx = 0; s.awaiting = null; state.set(phone, s);
+    return reviewOrSubmit(phone, name, s);
+  }
+
   if (selectionId === "addr:new") {
-    s.awaiting = "address"; s.addressOk = false; state.set(phone, s);
+    s.awaiting = "address"; state.set(phone, s);
     return wa.sendText(phone, `Naya delivery address bhejein 🏠\n(ghar/flat no, building, area)`);
   }
 
-  if (selectionId.startsWith("qty:")) return addToCart(phone, name, s, Number(selectionId.slice(4)) || 1);
   if (selectionId === "add_more") return sendMenuInteractive(phone, m);
   if (selectionId === "review") return reviewOrSubmit(phone, name, s);
   if (selectionId === "submit") return s.cart.length ? placeOrder(phone, name, s) : wa.sendText(phone, `Cart khali hai 🙂`);
   if (selectionId === "edit") {
-    s.cart = []; s.awaiting = null; s.pendingItem = null; s.picks = []; s.groupIdx = 0;
+    s.cart = []; s.awaiting = null; s.picks = []; s.groupIdx = 0; s.lastLine = null;
     state.set(phone, s);
     return sendMenuInteractive(phone, m);
   }
@@ -271,15 +325,21 @@ async function handleMessage(phone, name, text, selectionId = null) {
     const qty = parseInt(text.replace(/\D/g, ""), 10);
     if (qty > 0 && qty < 100) return addTiffinToCart(phone, s, m, qty);
   }
-  if (s.awaiting === "qty" && s.pendingItem) {
-    const qty = parseInt(text.replace(/\D/g, ""), 10);
-    if (qty > 0 && qty < 100) return addToCart(phone, name, s, qty);
+  // On the confirm card a bare number changes the quantity of the last line.
+  if (s.awaiting === "confirm" && s.cart.length && /^\d{1,2}$/.test(lower)) {
+    const qty = parseInt(lower, 10);
+    if (qty > 0) {
+      const line = s.cart.find((i) => i.name === s.lastLine) || s.cart[s.cart.length - 1];
+      line.qty = qty;
+      state.set(phone, s);
+      return reviewOrSubmit(phone, name, s);
+    }
   }
 
   // ===== awaiting address =====
   if (s.awaiting === "address" && text.trim().length > 6) {
     await sheets.upsertCustomer({ phone, name, address: text.trim() });
-    s.awaiting = null; s.addressOk = true; state.set(phone, s);
+    s.awaiting = null; state.set(phone, s);
     await wa.sendText(phone, `Address save ho gaya ✅`);
     return reviewOrSubmit(phone, name, s);
   }
@@ -302,8 +362,9 @@ async function handleMessage(phone, name, text, selectionId = null) {
     const e = m.extras.find((it) => it.name.toLowerCase() === lower)
       || m.extras.find((it) => lower.length > 2 && it.name.toLowerCase().includes(lower));
     if (e) {
-      s.pendingItem = { name: e.name, price: e.price }; s.awaiting = "qty"; state.set(phone, s);
-      return askQty(phone, e);
+      addLine(s, e.name, e.price);
+      s.awaiting = null; state.set(phone, s);
+      return reviewOrSubmit(phone, name, s);
     }
   }
 

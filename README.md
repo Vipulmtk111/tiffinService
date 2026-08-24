@@ -47,7 +47,7 @@ EXTRA
 
 Decoration survives: `》`, `●`, `👉`, `*`, `•` and `1.` numbering are stripped, and booking/timing lines are ignored. A headerless priced list (`Flower bateta - 50`) still works and is treated as `EXTRA` items. Send `format` to the bot to get this sample on WhatsApp.
 
-Customers then order entirely by tapping: pick sabji → pick bread → quantity → extras → review → submit. The LLM is only reached for off-script *questions*.
+Customers order in **two taps**: every sabji×bread combination is one row of a single list, and picking one goes straight to a confirm card showing the cart, total and saved delivery address. A bare number on that card changes the quantity. When the combinations exceed the 10-row WhatsApp list cap, it degrades automatically to asking one group at a time. The LLM is only reached for off-script *questions*.
 
 ## The owner's day (the loop this bot runs)
 1. **08:00** — bot nudges the owner: *"Aaj ka menu paste kar dein"* (or confirms it if already set).

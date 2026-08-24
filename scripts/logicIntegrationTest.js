@@ -77,21 +77,17 @@ const { handleOwner } = require("../src/ownerCommands");
   ok("greeting sends an interactive menu list", out.some((m) => m.type === "list" && m.to === CUST));
 
   reset();
-  await logic.handleMessage(CUST, "Raju", "Bhindi Thali", "item:Bhindi Thali");
-  ok("tapping an item asks quantity (buttons)", last(CUST).type === "buttons" && /kitne/i.test(last(CUST).body || ""));
-
-  reset();
-  await logic.handleMessage(CUST, "Raju", "2", "qty:2");
-  ok("qty adds to cart + offers add-more/review", last(CUST).type === "buttons" && last(CUST).buttons.some((b) => b.id === "review"));
-  ok("cart shows 2× Bhindi = ₹240", /2× Bhindi Thali/.test(last(CUST).body || "") && /₹240/.test(last(CUST).body || ""));
-
-  reset();
-  await logic.handleMessage(CUST, "Raju", "", "review");
-  ok("no address yet -> asks for address", /address/i.test(last(CUST).text || ""));
+  await logic.handleMessage(CUST, "Raju", "", "x:0");
+  ok("one tap adds the item and asks for the address (no address on file)", /address/i.test(last(CUST).text || ""));
 
   reset();
   await logic.handleMessage(CUST, "Raju", "House 12, MG Road, near park", null);
-  ok("address saved -> shows submit buttons", last(CUST).type === "buttons" && last(CUST).buttons.some((b) => b.id === "submit"));
+  ok("address saved -> shows the confirm card", last(CUST).type === "buttons" && last(CUST).buttons.some((b) => b.id === "submit"));
+  ok("confirm card shows the address", /MG Road/.test(last(CUST).body || ""));
+
+  reset();
+  await logic.handleMessage(CUST, "Raju", "2", null);
+  ok("a bare number on the card sets the quantity", /2× Bhindi Thali/.test(last(CUST).body || "") && /₹240/.test(last(CUST).body || ""));
 
   reset();
   await logic.handleMessage(CUST, "Raju", "", "submit");
@@ -149,47 +145,82 @@ EXTRA
   ok("[5] read as quantity, not price", menu.some((r) => r.name === "Roti x5" && r.price === 0));
   ok("extra keeps its own price", menu.some((r) => r.category === "extra" && r.name === "Dhokla" && r.price === 40));
 
-  console.log("\n=== CUSTOMER: tiffin ordering is pure buttons ===");
+  console.log("\n=== CUSTOMER: a returning customer orders in 2 taps ===");
   const C2 = "919900000003";
   customers.set(C2, { phone: C2, name: "Kiran", address: "5 Park Rd" });
   reset();
   await logic.handleMessage(C2, "Kiran", "hi", null);
-  ok("greeting offers the tiffin button", (last(C2).buttons || []).some((b) => b.id === "t:start"));
+  const menuList = last(C2);
+  const rows = (menuList.sections || []).flatMap((x) => x.rows);
+  ok("greeting sends ONE list, not a chain of questions", menuList.type === "list");
+  ok("every sabji×bread combo is a single row", rows.filter((r) => /^c:\d+$/.test(r.id)).length === 4);
+  ok("combo row names the whole tiffin", rows.some((r) => r.title === "Sev Tameta + Roti x5"));
+  ok("extras share the same list", rows.some((r) => r.id === "x:0" && r.title === "Dhokla"));
 
+  // TAP 1 — pick the combo. Straight to the confirm card, no further questions.
   reset();
-  await logic.handleMessage(C2, "Kiran", "", "t:start");
-  ok("first group asked", /Sabji/i.test(last(C2).body || "") && (last(C2).buttons || []).length === 2);
+  await logic.handleMessage(C2, "Kiran", "", "c:2");
+  const card = last(C2);
+  ok("one tap goes straight to the confirm card", card.type === "buttons");
+  ok("card shows the chosen tiffin", /Tiffin \(Sev Tameta \+ Roti x5\)/.test(card.body || ""));
+  ok("card shows the saved address", /5 Park Rd/.test(card.body || ""));
+  ok("card offers confirm, add-more and address change",
+    ["submit", "add_more", "addr:new"].every((id) => (card.buttons || []).some((b) => b.id === id)));
 
+  // Quantity without an extra round trip.
   reset();
-  await logic.handleMessage(C2, "Kiran", "", "t:p:0:1");
-  ok("second group asked after first pick", /Roti/i.test(last(C2).body || ""));
+  await logic.handleMessage(C2, "Kiran", "2", null);
+  ok("a bare number changes the tiffin quantity", new RegExp(`${cfg.biz.tiffinPrice * 2}`).test(last(C2).body || ""));
 
-  reset();
-  await logic.handleMessage(C2, "Kiran", "", "t:p:1:0");
-  ok("quantity asked once all groups are picked", (last(C2).buttons || []).some((b) => b.id === "t:qty:2"));
-
-  reset();
-  await logic.handleMessage(C2, "Kiran", "", "t:qty:2");
-  ok("cart totals 2 tiffins at the tiffin price", new RegExp(`${cfg.biz.tiffinPrice * 2}`).test(last(C2).body || ""));
-
-  reset();
-  await logic.handleMessage(C2, "Kiran", "", "review");
-  ok("returning customer is shown the saved address, not billed to it silently",
-    /5 Park Rd/.test(last(C2).body || "") && (last(C2).buttons || []).some((b) => b.id === "addr:same"));
-
+  // Changing the address is still possible from the same card.
   reset();
   await logic.handleMessage(C2, "Kiran", "", "addr:new");
-  ok("'naya address' asks for a new one", /address/i.test(last(C2).text || ""));
+  ok("'address' button asks for a new one", /address/i.test(last(C2).text || ""));
   reset();
   await logic.handleMessage(C2, "Kiran", "9 Lake View, Satellite", null);
-  ok("typed address is saved and review follows", customers.get(C2).address === "9 Lake View, Satellite");
-  ok("review shows the NEW address", /9 Lake View/.test(last(C2).body || ""));
+  ok("typed address is saved", customers.get(C2).address === "9 Lake View, Satellite");
+  ok("card returns showing the NEW address", /9 Lake View/.test(last(C2).body || ""));
 
+  // TAP 2 — confirm.
   reset();
   await logic.handleMessage(C2, "Kiran", "", "submit");
   const tiffinOrder = orders[orders.length - 1];
   ok("order line names the chosen combo", /Sev Tameta \+ Roti x5/.test(tiffinOrder.items[0].name));
   ok("order amount uses the tiffin price", tiffinOrder.amount === cfg.biz.tiffinPrice * 2);
+
+  // A big menu blows past the 10-row list cap, so it must degrade to step-by-step.
+  console.log("\n=== CUSTOMER: too many combos -> step-by-step fallback ===");
+  reset();
+  await handleOwner(`SABJI (any 1)
+- Bhindi
+- Sev Tameta
+- Suki Bhaji
+- Dahi Tikhari
+
+BREAD (any 1)
+- Roti x5
+- Thepla x4
+- Puri x6
+
+INCLUDED
+- Dal Bhat`, null);
+  await handleOwner("", "menu_confirm");
+  const C3 = "919900000004";
+  customers.set(C3, { phone: C3, name: "Meena", address: "1 Hill Rd" });
+  reset();
+  await logic.handleMessage(C3, "Meena", "hi", null);
+  ok("12 combos > 10 rows -> falls back to the group-by-group button", (last(C3).buttons || []).some((b) => b.id === "t:start"));
+
+  reset();
+  await logic.handleMessage(C3, "Meena", "", "t:start");
+  ok("fallback asks the first group as a list (4 options)", last(C3).type === "list");
+
+  reset();
+  await logic.handleMessage(C3, "Meena", "", "t:p:0:1");
+  await logic.handleMessage(C3, "Meena", "", "t:p:1:0");
+  await logic.handleMessage(C3, "Meena", "", "t:qty:1");
+  ok("fallback still builds a correct cart line",
+    /Sev Tameta \+ Roti x5/.test(last(C3).body || ""));
 
   console.log(`\n${fail === 0 ? "🎉 ALL PASS" : "⚠️  SOME FAILED"} — ${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
