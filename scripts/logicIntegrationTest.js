@@ -102,7 +102,8 @@ const { handleOwner } = require("../src/ownerCommands");
 
   reset();
   await logic.handleMessage(CUST, "Raju", "2", null);
-  ok("a bare number on the card sets the quantity", /Bhindi Thali/.test(last(CUST).body || "") && /2× = ₹240/.test(last(CUST).body || ""));
+  ok("a bare number on the card sets the quantity",
+    new RegExp("✅ 2\u00d7 Bhindi Thali \u2014 \u20b9240").test(last(CUST).body || ""));
 
   reset();
   await logic.handleMessage(CUST, "Raju", "", "submit");
@@ -345,16 +346,17 @@ INCLUDED
   reset();
   await logic.handleMessage(C6, "Nita", "", "c:0");
   const panel1 = last(C6).body || "";
-  ok("panel shows the chosen tiffin ticked", /☑ 1\u00d7 Tiffin/.test(panel1));
-  ok("panel lists every extra with an empty box", /☐ Dhokla/.test(panel1));
+  ok("panel shows the chosen tiffin", /✅ 1\u00d7 Tiffin/.test(panel1));
+  ok("unchosen extras are offered as buttons, not as empty boxes in the body",
+    !/☐/u.test(panel1) && (last(C6).buttons || []).some((b) => b.title === "☐ Dhokla"));
 
   reset();
   await logic.handleMessage(C6, "Nita", "", "x:0");
   const panel2 = last(C6).body || "";
-  ok("ticking an extra keeps the tiffin ticked too",
-    /☑ 1\u00d7 Tiffin/.test(panel2) && /☑ Dhokla/.test(panel2));
+  ok("adding an extra keeps the tiffin listed too",
+    /✅ 1\u00d7 Tiffin/.test(panel2) && /✅ 1\u00d7 Dhokla/.test(panel2));
   ok("both selections are visible at once - the whole point",
-    (panel2.match(/☑/g) || []).length >= 2);
+    (panel2.match(/✅/gu) || []).length >= 2);
   ok("total reflects both", new RegExp("Total: \u20b9" + (cfg.biz.tiffinPrice + 40)).test(panel2));
 
   reset();
@@ -367,7 +369,7 @@ INCLUDED
   reset();
   await logic.handleMessage(C6, "Nita", "", "x:0");
   const panel3 = last(C6).body || "";
-  ok("second tap makes it 2x", /☑ Dhokla \u2014 2\u00d7/.test(panel3));
+  ok("second tap makes it 2x", /✅ 2\u00d7 Dhokla/.test(panel3));
   ok("total counts both", new RegExp("Total: \u20b9" + (cfg.biz.tiffinPrice + 80)).test(panel3));
   ok("button label carries the quantity",
     (last(C6).buttons || []).some((b) => b.id === "x:0" && /2\u00d7 Dhokla/.test(b.title)));
@@ -377,8 +379,10 @@ INCLUDED
   await logic.handleMessage(C6, "Nita", "", "x:0");   // 3x
   await logic.handleMessage(C6, "Nita", "", "x:0");   // cleared
   const panel4 = last(C6).body || "";
-  ok("one more tap past the cap clears it", /☐ Dhokla/.test(panel4));
-  ok("tiffin survives the whole cycle", /☑ 1\u00d7 Tiffin/.test(panel4));
+  ok("one more tap past the cap clears it",
+    !new RegExp("✅ \\d+\u00d7 Dhokla").test(panel4) &&
+    (last(C6).buttons || []).some((b) => b.title === "☐ Dhokla"));
+  ok("tiffin survives the whole cycle", /✅ 1\u00d7 Tiffin/.test(panel4));
   ok("total returns to the tiffin alone", new RegExp("Total: \u20b9" + cfg.biz.tiffinPrice).test(panel4));
 
   console.log("\n=== CUSTOMER QUESTIONS: forward and answer ===");

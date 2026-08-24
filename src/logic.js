@@ -193,24 +193,24 @@ const TAP_QTY_MAX = 3;
 function extrasFitButtons(m) { return m.extras.length > 0 && m.extras.length <= TOGGLE_BUTTON_MAX; }
 
 async function sendExtrasToggle(phone, m, s) {
-  const qtyOf = (nm) => ((s?.cart || []).find((i) => i.name === nm) || {}).qty || 0;
-  const tiffins = (s?.cart || []).filter((i) => i.name.startsWith("Tiffin"));
+  const cart = s?.cart || [];
+  const qtyOf = (nm) => (cart.find((i) => i.name === nm) || {}).qty || 0;
 
-  const lines = m.extras.map((e) => {
-    const q = qtyOf(e.name);
-    if (!q) return `\u2610 ${e.name} \u2014 \u20b9${e.price}`;
-    return `\u2611 ${e.name} \u2014 ${q}\u00d7 \u20b9${e.price} = \u20b9${q * e.price}`;
-  }).join("\n");
-
-  const head = tiffins.length
-    ? `\u2611 ${tiffins.map((i) => `${i.qty}\u00d7 ${i.name}`).join("\n\u2611 ")}\n\n`
-    : "";
-
+  // Only what is actually in the order. Re-listing every extra with an empty
+  // box after each tap reads as the bot asking again; the buttons already say
+  // what can still be added.
+  const chosen = cart.map((i) => `\u2705 ${i.qty}\u00d7 ${i.name} \u2014 \u20b9${i.price * i.qty}`).join("\n");
+  const rest = m.extras.filter((e) => !qtyOf(e.name));
+  const restLine = rest.map((e) => `${e.name} \u20b9${e.price}`).join(" \u00b7 ");
   const picked = m.extras.some((e) => qtyOf(e.name) > 0);
+
+  const prompt = picked
+    ? (rest.length ? `\u2795 Aur chahiye? ${restLine}` : "\u2795 Saare extra add ho gaye")
+    : `*Step 2 \u2014 Extra chahiye?* (optional)\n${restLine}`;
+
   return wa.sendButtons(phone, {
-    body: `${head}*Step 2 \u2014 Extra chahiye?* (optional)\n${lines}\n\n` +
-      `\u2014 \u2014 \u2014\n*Total: \u20b9${cartTotal(s?.cart || [])}*\n\n` +
-      `(dobara tap karne se quantity badhegi \u00b7 ${TAP_QTY_MAX}\u00d7 ke baad hat jayega)`,
+    body: `\ud83e\uddfe *Aapka order*\n${chosen}\n*Total: \u20b9${cartTotal(cart)}*\n\n${prompt}\n` +
+      `(dobara tap = quantity \u00b7 ${TAP_QTY_MAX}\u00d7 ke baad hat jayega)`,
     buttons: [
       ...m.extras.map((e, i) => {
         const q = qtyOf(e.name);
@@ -374,38 +374,12 @@ async function reviewOrSubmit(phone, name, s) {
  * behaviour built out of the parts WhatsApp does give us.
  */
 function renderOrderPanel(s, m, address) {
-  const tiffins = s.cart.filter((i) => i.name.startsWith("Tiffin"));
-  const inCart = new Set(s.cart.map((i) => i.name));
-
-  let out = `🧾 *Aapka order*\n\n`;
-
-  // Only mention a tiffin on a day that actually has one.
-  if (menuParse.isTiffinMenu(m)) {
-    out += tiffins.length
-      ? tiffins.map((i) => `☑ ${i.qty}× ${i.name} — ₹${i.price * i.qty}`).join("\n") + "\n"
-      : `☐ Tiffin abhi nahi chuna\n`;
-  }
-
-  if (m.extras.length) {
-    out += `${menuParse.isTiffinMenu(m) ? "\n*Extra*" : "*Items*"} (jitne chahein):\n`;
-    out += m.extras.map((e) => {
-      const line = s.cart.find((i) => i.name === e.name);
-      const tick = inCart.has(e.name) ? "☑" : "☐";
-      const qty = line && line.qty > 1 ? ` — ${line.qty}× = ₹${line.price * line.qty}` : "";
-      return `${tick} ${e.name} — ₹${e.price}${qty}`;
-    }).join("\n") + "\n";
-  }
-
-  // Anything in the cart that today's menu no longer lists (menu changed
-  // mid-order) still has to be shown, or the total wouldn't add up.
-  const known = new Set([...tiffins.map((i) => i.name), ...m.extras.map((e) => e.name)]);
-  const orphans = s.cart.filter((i) => !known.has(i.name));
-  if (orphans.length) out += orphans.map((i) => `☑ ${i.qty}× ${i.name} — ₹${i.price * i.qty}`).join("\n") + "\n";
-
-  out += `\n— — —\n*Total: ₹${cartTotal(s.cart)}*\n\n`;
-  out += `📍 *Delivery address:*\n${address}\n\n`;
-  out += `(quantity ke liye number bhejein · "cancel" se rad karein)`;
-  return out;
+  const lines = s.cart.map((i) => `\u2705 ${i.qty}\u00d7 ${i.name} \u2014 \u20b9${i.price * i.qty}`).join("\n");
+  // Extras not ordered are deliberately absent: this screen is the order, and
+  // listing the rest with empty boxes made customers think it was asking again.
+  return `\ud83e\uddfe *Aapka order*\n\n${lines}\n\u2014 \u2014 \u2014\n*Total: \u20b9${cartTotal(s.cart)}*\n\n` +
+    `\ud83d\udccd *Delivery address:*\n${address}\n\n` +
+    `(quantity ke liye number bhejein \u00b7 "cancel" se rad karein)`;
 }
 
 async function placeOrder(phone, name, s) {
