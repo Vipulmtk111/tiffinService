@@ -117,30 +117,40 @@ async function sendComboList(phone, m, s = null) {
   const incl = m.included.length ? `\n🍚 Har tiffin ke saath: ${m.included.map(menuParse.optDisplay).join(", ")}` : "";
   const sections = [];
 
+  // What's already in the cart, so rows can carry a ✅ instead of looking unpicked.
+  const inCart = new Map((s?.cart || []).map((i) => [i.name, i.qty]));
+
+  /** Indented, tick-marked row. NBSP survives any client that trims spaces. */
+  const row = (id, cartName, label, rupees) => {
+    const qty = inCart.get(cartName);
+    return {
+      id,
+      title: qty ? `✅ ${label}` : `  • ${label}`,
+      description: qty ? `₹${rupees} · ${qty}× add kiya` : `₹${rupees}`,
+    };
+  };
+
   if (m.groups.length >= 2) {
     // Section per first-group option; rows are the rest of the combination.
     for (const headOpt of m.groups[0].options) {
       const rows = combos
         .map((picks, ci) => ({ picks, ci }))
         .filter(({ picks }) => picks[0] === headOpt)
-        .map(({ picks, ci }) => ({
-          id: `c:${ci}`,
-          title: `+ ${picks.slice(1).map(menuParse.optDisplay).join(" + ")}`,
-          description: `₹${price}`,
-        }));
-      if (rows.length) sections.push({ title: menuParse.optDisplay(headOpt), rows });
+        .map(({ picks, ci }) =>
+          row(`c:${ci}`, comboCartName(picks), picks.slice(1).map(menuParse.optDisplay).join(" + "), price));
+      if (rows.length) sections.push({ title: `🍛 ${menuParse.optDisplay(headOpt).toUpperCase()}`, rows });
     }
   } else {
     sections.push({
-      title: m.groups.length ? m.groups[0].name : "Tiffin",
-      rows: combos.map((picks, i) => ({ id: `c:${i}`, title: comboTitle(picks), description: `₹${price}` })),
+      title: m.groups.length ? `🍛 ${m.groups[0].name.toUpperCase()}` : "🍱 TIFFIN",
+      rows: combos.map((picks, i) => row(`c:${i}`, comboCartName(picks), comboTitle(picks), price)),
     });
   }
 
   if (m.extras.length) {
     sections.push({
-      title: "Extra ➕",
-      rows: m.extras.map((e, i) => ({ id: `x:${i}`, title: e.name, description: `₹${e.price}` })),
+      title: "➕ EXTRA",
+      rows: m.extras.map((e, i) => row(`x:${i}`, e.name, e.name, e.price)),
     });
   }
 

@@ -156,9 +156,9 @@ EXTRA
   ok("greeting sends ONE list, not a chain of questions", menuList.type === "list");
   ok("every sabji×bread combo is a single row", rows.filter((r) => /^c:\d+$/.test(r.id)).length === 4);
   ok("sabji is the section heading, bread the row", (menuList.sections || [])
-    .some((sec) => sec.title === "Sev Tameta" && sec.rows.some((r) => r.title === "+ 5 Roti")));
+    .some((sec) => /SEV TAMETA/.test(sec.title) && sec.rows.some((r) => /• 5 Roti$/.test(r.title))));
   ok("no row title is truncated by WhatsApp's 24-char cap", rows.every((r) => r.title.length <= 24));
-  ok("extras share the same list", rows.some((r) => r.id === "x:0" && r.title === "Dhokla"));
+  ok("extras share the same list", rows.some((r) => r.id === "x:0" && /Dhokla$/.test(r.title)));
 
   // TAP 1 — pick the combo. Straight to the confirm card, no further questions.
   reset();
@@ -175,6 +175,13 @@ EXTRA
   await logic.handleMessage(C2, "Kiran", "", "add_more");
   ok("reopened menu shows the running cart, so nothing looks lost",
     /Abhi tak/.test(last(C2).body || "") && /Sev Tameta/.test(last(C2).body || ""));
+  const reopened = (last(C2).sections || []).flatMap((x) => x.rows);
+  ok("the row already in the cart carries a ✅",
+    reopened.some((r) => r.id === "c:2" && r.title.startsWith("✅") && /add kiya/.test(r.description)));
+  ok("rows not in the cart stay unticked and indented",
+    reopened.filter((r) => r.id !== "c:2").every((r) => !r.title.startsWith("✅") && /^  • /.test(r.title)));
+  ok("section headings are visually distinct from their rows",
+    (last(C2).sections || []).every((sec) => /^(🍛|➕|🍱) [A-Z]/u.test(sec.title)));
   reset();
   await logic.handleMessage(C2, "Kiran", "", "x:0");
   const both = last(C2).body || "";
