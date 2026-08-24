@@ -3,6 +3,7 @@ const sheets = require("./sheets");
 const { customerAnswer } = require("./brain");
 const wa = require("./whatsapp");
 const menuParse = require("./menuParse");
+const flowOrder = require("./flowOrder");
 
 // in-memory cart state: phone -> {
 //   cart:[{name,qty,price}], lastLine:name|null,
@@ -414,9 +415,44 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
   return null;
 }
 
-/** Send today's menu to one phone as the interactive, tappable message. */
-async function sendMenuTo(phone, rows) {
+/**
+ * Send today's menu to one phone. Prefers the WhatsApp Flow — one form with
+ * radio groups, real checkboxes for extras and the address, submitted once —
+ * and falls back to the button/list path if the Flow isn't configured, isn't
+ * usable for today's menu, or the send is rejected.
+ */
+async function sendMenuTo(phone, rows, address = null) {
+  if (flowOrder.flowEnabled()) {
+    const addr = address != null ? address : (await sheets.getCustomer(phone))?.address || "";
+    if (await flowOrder.sendOrderFlow(phone, rows, addr)) return;
+  }
   return sendMenuInteractive(phone, menuParse.fromSheetRows(rows || []));
+}
+
+/**
+ * A submitted Flow: the entire order arrives at once, so there is no cart to
+ * build up — validate it, save the address, and place the order.
+ */
+async function handleFlowOrder(phone, name, response) {
+  if (ordersPaused) return wa.sendText(phone, `🙏 Aaj shop band hai. Kal milte hain!`);
+
+  const rows = await sheets.getMenu();
+  if (!rows || !rows.length) return wa.sendText(phone, `Menu abhi update ho raha hai 🙏 thodi der mein try karein.`);
+
+  const parsed = flowOrder.parseFlowReply(response, rows);
+  if (!parsed) {
+    console.error("[flow] could not read the submission:", JSON.stringify(response));
+    return wa.sendText(phone, `Order samajh nahi aaya 🙏 "menu" likh kar dobara try karein.`);
+  }
+
+  const address = parsed.address;
+  if (!address) return wa.sendText(phone, `Delivery address chahiye 🏠 bhej dein, phir order lagata hun.`);
+  await sheets.upsertCustomer({ phone, name, address });
+
+  const s = freshState();
+  s.cart = parsed.items;
+  state.set(phone, s);
+  return placeOrder(phone, name, s);
 }
 
 /** Main entry: handle one incoming customer message / tap. */
@@ -508,5 +544,5 @@ async function handleMessage(phone, name, text, selectionId = null) {
 
 module.exports = {
   handleMessage, setPaused, isPaused,
-  renderMenu, menuText: renderMenu, renderMenuModel, sendMenuTo,
+  renderMenu, menuText: renderMenu, renderMenuModel, sendMenuTo, handleFlowOrder,
 };

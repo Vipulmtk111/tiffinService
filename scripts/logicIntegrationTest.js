@@ -17,6 +17,12 @@ brain.parseMenu = async () => ({
 brain.customerAnswer = async () => "Delivery 1-2 baje tak ho jati hai 🛵";
 
 const wa = require("../src/whatsapp");
+
+// Stub the Flow sender. Without this the suite would hit the real Graph API
+// and send WhatsApp messages to the fake test numbers below.
+const flowOrder = require("../src/flowOrder");
+const flowSends = [];
+flowOrder.sendOrderFlow = async (to) => { flowSends.push(to); return null; }; // null -> caller falls back
 const sheets = require("../src/sheets");
 
 let pass = 0, fail = 0;
@@ -284,6 +290,38 @@ INCLUDED
   await logic.handleMessage(C3, "Meena", "", "t:qty:1");
   ok("fallback still builds a correct cart line",
     /Sev Tameta \+ 5 Roti/.test(last(C3).body || ""));
+
+  console.log("\n=== FLOW: one submission becomes a whole order ===");
+  const C5 = "919900000006";
+  reset();
+  // Rebuild the 2x2 tiffin menu that the Flow describes.
+  await handleOwner("SABJI (any 1)\n- Suki Bhaji\n- Sev Tameta\n\nBREAD (any 1)\n- Roti x5\n- Thepla x4\n\nINCLUDED\n- Dal Bhat\n\nEXTRA\n- Dhokla - 40", null);
+  await handleOwner("", "menu_confirm");
+
+  const flowData = flowOrder.buildFlowData(require("../src/menuParse").fromSheetRows(menu), "7 Hill Rd");
+  ok("flow screen gets both choice groups as radio options",
+    flowData.sabji_options.length === 2 && flowData.bread_options.length === 2 && flowData.bread_visible === true);
+  ok("flow screen gets extras as checkbox options",
+    flowData.extras_visible === true && flowData.extra_options[0].title === "Dhokla");
+  ok("flow screen prefills the saved address", flowData.address === "7 Hill Rd");
+
+  reset();
+  await logic.handleFlowOrder(C5, "Ravi", {
+    sabji: "1", bread: "0", extras: ["0"], qty: "2", address: "7 Hill Rd, Bopal",
+  });
+  const flowRow = orders[orders.length - 1];
+  ok("submission places the order in one step", flowRow.phone === C5);
+  ok("radio picks become one tiffin line",
+    /Sev Tameta \+ 5 Roti/.test(flowRow.items[0].name) && flowRow.items[0].qty === 2);
+  ok("checked extra is added alongside the tiffin", flowRow.items.some((i) => i.name === "Dhokla"));
+  ok("total covers both", flowRow.amount === cfg.biz.tiffinPrice * 2 + 40);
+  ok("address from the form is saved", customers.get(C5).address === "7 Hill Rd, Bopal");
+  ok("confirmation sent to the customer", /Order confirm/.test(last(C5).text || ""));
+
+  reset();
+  await logic.handleFlowOrder(C5, "Ravi", { sabji: "0", qty: "1", address: "" });
+  ok("a submission with no address places no order",
+    /address/i.test(last(C5).text || "") && orders[orders.length - 1] === flowRow);
 
   console.log(`\n${fail === 0 ? "🎉 ALL PASS" : "⚠️  SOME FAILED"} — ${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);

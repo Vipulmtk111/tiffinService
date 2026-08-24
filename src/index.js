@@ -1,6 +1,6 @@
 const express = require("express");
 const cfg = require("./config");
-const { handleMessage } = require("./logic");
+const { handleMessage, handleFlowOrder } = require("./logic");
 const { handleOwner } = require("./ownerCommands");
 const { startJobs } = require("./jobs");
 
@@ -48,21 +48,34 @@ app.post("/webhook", (req, res) => {
           // Extract text OR an interactive selection id (button/list tap).
           let text = "";
           let selectionId = null;
+          let flowReply = null;
           if (msg.type === "text") {
             text = msg.text?.body || "";
           } else if (msg.type === "interactive") {
             const ir = msg.interactive || {};
+            if (ir.nfm_reply) {
+              // A submitted WhatsApp Flow — the whole order in one payload.
+              try {
+                flowReply = JSON.parse(ir.nfm_reply.response_json || "{}");
+              } catch (err) {
+                console.error("[flow] bad response_json:", err.message);
+              }
+            }
             const reply = ir.button_reply || ir.list_reply || {};
             selectionId = reply.id || null;
             text = reply.title || "";
           } else {
             continue; // ignore images/audio/etc. for now
           }
-          console.log(`[in <- ${phone} ${name}] ${selectionId ? `[tap:${selectionId}] ` : ""}${text}`);
+          console.log(`[in <- ${phone} ${name}] ${flowReply ? "[flow] " : ""}${selectionId ? `[tap:${selectionId}] ` : ""}${text}`);
 
-          const route = phone === cfg.biz.ownerPhone
-            ? handleOwner(text, selectionId)
-            : handleMessage(phone, name, text, selectionId);
+          // A Flow submission is always a customer order, even from the owner's
+          // own number while they're testing it.
+          const route = flowReply
+            ? handleFlowOrder(phone, name, flowReply)
+            : phone === cfg.biz.ownerPhone
+              ? handleOwner(text, selectionId)
+              : handleMessage(phone, name, text, selectionId);
           route.catch((err) => console.error("[handler] error:", err));
         }
         // log delivery failures
