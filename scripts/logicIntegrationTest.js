@@ -63,8 +63,24 @@ sheets.upsertCustomer = async ({ phone, name, address }) => {
   const e = customers.get(phone) || { phone, totalOrders: 0 };
   customers.set(phone, { ...e, phone, name: name || e.name, address: address || e.address });
 };
-sheets.addOrder = async (o) => { orders.push(o); return "20260722-001"; };
-sheets.getOrders = async () => orders.map((o) => ({ ...o, status: "confirmed", payment: "pending" }));
+let orderSeq = 0;
+sheets.addOrder = async (o) => {
+  const id = `20260722-${String(++orderSeq).padStart(3, "0")}`;
+  orders.push({ ...o, id, row: orders.length + 2, status: "confirmed", payment: "pending" });
+  return id;
+};
+sheets.amendOrder = async (row, items, amount) => {
+  const o = orders.find((x) => x.row === row);
+  if (o) { o.items = items; o.amount = amount; }
+};
+sheets.setOrderField = async (row, col, value) => {
+  const o = orders.find((x) => x.row === row);
+  if (o && col === "H") o.status = value;
+  if (o && col === "I") o.payment = value;
+};
+sheets.getOrders = async () => orders.map((o) => ({
+  ...o, status: o.status || "confirmed", payment: o.payment || "pending",
+}));
 
 const menuParse = require("../src/menuParse");
 const logic = require("../src/logic");
@@ -419,6 +435,64 @@ INCLUDED
     out.some((m) => m.to === C7 && /75 per tiffin/.test(m.text || "")));
 
   answerImpl = async () => "Delivery 1-2 baje tak ho jati hai 🛵";
+
+  console.log("\n=== REPEAT ORDER: add to it, or start a new one ===");
+  const C8 = "919900000009";
+  customers.set(C8, { phone: C8, name: "Dev", address: "4 Sun Villa" });
+
+  reset();
+  await logic.handleMessage(C8, "Dev", "", "c:0");
+  await logic.handleMessage(C8, "Dev", "", "review");
+  await logic.handleMessage(C8, "Dev", "", "submit");
+  const first = orders[orders.length - 1];
+  ok("first order is placed normally", first.phone === C8);
+
+  // Saying hi again must not silently start a second order.
+  reset();
+  await logic.handleMessage(C8, "Dev", "hi", null);
+  const choice = last(C8);
+  ok("a repeat greeting mentions the existing order",
+    choice.type === "buttons" && new RegExp("#" + first.id).test(choice.body || ""));
+  ok("it offers add / new / cancel",
+    ["ord:add", "ord:new", "ord:cancel"].every((id) => (choice.buttons || []).some((b) => b.id === id)));
+
+  // "Isme aur add" merges into the same order rather than creating another.
+  reset();
+  await logic.handleMessage(C8, "Dev", "", "ord:add");
+  ok("adding says which order it is adding to", out.some((mm) => new RegExp("#" + first.id).test(mm.text || "")));
+  const before = orders.length;
+  reset();
+  await logic.handleMessage(C8, "Dev", "", "c:0");
+  await logic.handleMessage(C8, "Dev", "", "review");
+  ok("review says it is adding to the existing order",
+    new RegExp("purane order #" + first.id).test(last(C8).body || ""));
+  reset();
+  await logic.handleMessage(C8, "Dev", "", "submit");
+  ok("no second order row is created", orders.length === before);
+  ok("quantity is merged into the existing line",
+    orders.find((o) => o.id === first.id).items[0].qty === 2);
+  ok("amount is recalculated", orders.find((o) => o.id === first.id).amount === cfg.biz.tiffinPrice * 2);
+  ok("owner is told the order changed",
+    out.some((mm) => mm.to === OWNER && /Order update/.test(mm.text || "")));
+
+  // "Alag naya order" makes a separate one.
+  reset();
+  await logic.handleMessage(C8, "Dev", "hi", null);
+  await logic.handleMessage(C8, "Dev", "", "ord:new");
+  reset();
+  await logic.handleMessage(C8, "Dev", "", "c:1");
+  await logic.handleMessage(C8, "Dev", "", "review");
+  await logic.handleMessage(C8, "Dev", "", "submit");
+  ok("a separate order is created when asked", orders.length === before + 1);
+
+  // Cancelling marks it, tells the owner, and frees the customer to reorder.
+  reset();
+  await logic.handleMessage(C8, "Dev", "hi", null);
+  await logic.handleMessage(C8, "Dev", "", "ord:cancel");
+  const cancelled = orders[orders.length - 1];
+  ok("cancel marks the order cancelled", cancelled.status === "cancelled");
+  ok("owner is told about the cancellation",
+    out.some((mm) => mm.to === OWNER && /Order cancel/.test(mm.text || "")));
 
   console.log(`\n${fail === 0 ? "🎉 ALL PASS" : "⚠️  SOME FAILED"} — ${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);

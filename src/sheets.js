@@ -174,7 +174,11 @@ async function getOrders(dateStr = todayStr()) {
 async function setOrderField(row, col, value) {
   return update(`Orders!${col}${row}`, [[value]]);
 }
-const COL = { status: "H", payment: "I" };
+/** Rewrite an existing order's line items and amount (customer added to it). */
+async function amendOrder(row, items, amount) {
+  await update(`Orders!E${row}:F${row}`, [[serializeItems(items), amount]]);
+}
+const COL = { items: "E", amount: "F", status: "H", payment: "I" };
 
 // ---------- DailyLog ----------
 // Columns: Date | TotalOrders | TotalItems | Revenue | Collected | Pending
@@ -189,7 +193,7 @@ module.exports = {
   getCatalog, upsertCatalogItems,
   getMenu, setMenuItems,
   getCustomer, upsertCustomer, getAllCustomers,
-  addOrder, getOrders, setOrderField, COL,
+  addOrder, getOrders, setOrderField, amendOrder, COL,
   serializeItems, parseItems,
   appendDailyLog,
 };

@@ -16,7 +16,7 @@ let ordersPaused = false;
 function setPaused(v) { ordersPaused = v; }
 function isPaused() { return ordersPaused; }
 
-function freshState() { return { cart: [], awaiting: null, picks: [], groupIdx: 0, lastLine: null }; }
+function freshState() { return { cart: [], awaiting: null, picks: [], groupIdx: 0, lastLine: null, appendTo: null }; }
 
 // ---------- rendering ----------
 const optLabel = menuParse.optDisplay;
@@ -325,6 +325,32 @@ function rememberForward(id, phone, name) {
 function forwardTarget(contextId) { return (contextId && forwards.get(contextId)) || null; }
 function lastForwardTarget() { return lastForward; }
 
+/** Today's live orders for one customer (cancelled ones don't count). */
+async function todaysOrders(phone) {
+  const all = await sheets.getOrders();
+  return all.filter((o) => o.phone === phone && o.status !== "cancelled");
+}
+
+/**
+ * A customer who already ordered today gets asked what they meant, instead of
+ * silently starting a second order. Adding to the existing one keeps the
+ * kitchen list and the bill as a single entry per customer.
+ */
+async function sendExistingOrderChoice(phone, name, orders) {
+  const lines = orders.map((o) =>
+    `#${o.id} \u2014 ${o.items.map((i) => `${i.qty}\u00d7 ${i.name}`).join(", ")} \u2014 \u20b9${o.amount}`).join("\n");
+  return wa.sendButtons(phone, {
+    body: `Namaste ${name || ""}! \ud83d\ude4f\n\n` +
+      `Aaj ka aapka order pehle se hai:\n${lines}\n\n` +
+      `Kya karna chahenge?`,
+    buttons: [
+      { id: "ord:add", title: "\u2795 Isme aur add" },
+      { id: "ord:new", title: "\ud83c\udd95 Alag naya order" },
+      { id: "ord:cancel", title: "\u274c Cancel karein" },
+    ],
+  });
+}
+
 async function forwardToOwner(phone, name, text) {
   const res = await wa.sendText(cfg.biz.ownerPhone,
     `👤 *${name || phone}* ne pucha:\n"${text}"\n\n` +
@@ -377,7 +403,8 @@ function renderOrderPanel(s, m, address) {
   const lines = s.cart.map((i) => `\u2705 ${i.qty}\u00d7 ${i.name} \u2014 \u20b9${i.price * i.qty}`).join("\n");
   // Extras not ordered are deliberately absent: this screen is the order, and
   // listing the rest with empty boxes made customers think it was asking again.
-  return `\ud83e\uddfe *Aapka order*\n\n${lines}\n\u2014 \u2014 \u2014\n*Total: \u20b9${cartTotal(s.cart)}*\n\n` +
+  const addNote = s.appendTo ? `\n(purane order #${s.appendTo.id} mein add ho raha hai)` : "";
+  return `\ud83e\uddfe *Aapka order*${addNote}\n\n${lines}\n\u2014 \u2014 \u2014\n*Total: \u20b9${cartTotal(s.cart)}*\n\n` +
     `\ud83d\udccd *Delivery address:*\n${address}\n\n` +
     `(quantity ke liye number bhejein \u00b7 "cancel" se rad karein)`;
 }
@@ -392,6 +419,33 @@ async function placeOrder(phone, name, s) {
     return wa.sendText(phone, `Order lagane se pehle delivery address chahiye 🏠\n(ghar/flat no, building, area)`);
   }
   const amount = cartTotal(s.cart);
+
+  // Adding to an order placed earlier today: merge into that row rather than
+  // creating a second one, so the kitchen list and the bill stay one entry.
+  if (s.appendTo) {
+    const live = (await todaysOrders(phone)).find((o) => o.id === s.appendTo.id);
+    if (live) {
+      const merged = live.items.map((i) => ({ ...i }));
+      for (const add of s.cart) {
+        const at = merged.find((i) => i.name === add.name);
+        if (at) at.qty += add.qty;
+        else merged.push({ ...add });
+      }
+      const newAmount = merged.reduce((n, i) => n + i.price * i.qty, 0);
+      await sheets.amendOrder(live.row, merged, newAmount);
+      state.delete(phone);
+      // The kitchen list may already have gone out, so the owner must be told.
+      await wa.sendText(cfg.biz.ownerPhone,
+        `➕ *Order update* — #${live.id}\n${customer?.name || name || phone}\n` +
+        `Naya: ${cartSummary(s.cart)}\nAb total: ₹${newAmount}`);
+      return wa.sendText(phone,
+        `Order *#${live.id}* update ho gaya ✅\n\n${cartSummary(merged)}\n— — —\nTotal: ₹${newAmount}\n\n` +
+        `📍 *Delivery address:*\n${address}\n\nDhanyawad 🙂`);
+    }
+    // The order vanished (cancelled elsewhere) — fall through and place a new one.
+    s.appendTo = null;
+  }
+
   const id = await sheets.addOrder({
     date: sheets.todayStr(), phone, name: customer?.name || name,
     items: s.cart, amount, address,
@@ -401,6 +455,36 @@ async function placeOrder(phone, name, s) {
     `Order confirm ✅ (#${id})\n\n${cartSummary(s.cart)}\n— — —\nTotal: ₹${amount}\n\n` +
     `📍 *Delivery address:*\n${address}\n\n` +
     `Address galat ho toh abhi bata dein 🙏\nJald deliver ho jayega. Dhanyawad 🙂`);
+}
+
+/** "Isme aur add" / "Alag naya order" from the repeat-customer prompt. */
+async function chooseExistingOrder(phone, name, s, m, selectionId) {
+  const existing = await todaysOrders(phone);
+  if (selectionId === "ord:add") {
+    if (!existing.length) return wa.sendText(phone, `Aaj ka koi order nahi mila \ud83d\ude4f`);
+    const target = existing[existing.length - 1];   // newest, if somehow several
+    s.appendTo = { row: target.row, id: target.id };
+    await wa.sendText(phone, `Theek hai \u2014 order *#${target.id}* mein add kar rahe hain \ud83d\udc4d`);
+  } else {
+    s.appendTo = null;
+  }
+  s.cart = []; s.awaiting = null; s.picks = []; s.groupIdx = 0; s.lastLine = null;
+  state.set(phone, s);
+  return sendMenuInteractive(phone, m, s);
+}
+
+/** Cancel today's order. The owner is told, since the kitchen may have it. */
+async function cancelExistingOrder(phone, name, s) {
+  void s;
+  const existing = await todaysOrders(phone);
+  if (!existing.length) return wa.sendText(phone, `Aaj ka koi order nahi mila \ud83d\ude4f`);
+  const target = existing[existing.length - 1];
+  await sheets.setOrderField(target.row, sheets.COL.status, "cancelled");
+  state.delete(phone);
+  await wa.sendText(cfg.biz.ownerPhone,
+    `\u274c *Order cancel* \u2014 #${target.id}\n${name || phone} \u2014 \u20b9${target.amount}`);
+  return wa.sendText(phone,
+    `Order *#${target.id}* cancel kar diya \u274c\nDobara order karne ke liye "menu" likhein \ud83d\ude4f`);
 }
 
 // ---------- interactive taps ----------
@@ -476,6 +560,11 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
     return m.extras.length ? sendExtras(phone, m, s) : reviewOrSubmit(phone, name, s);
   }
 
+  // ----- what to do about today's existing order -----
+  if (selectionId === "ord:add" || selectionId === "ord:new") {
+    return chooseExistingOrder(phone, name, s, m, selectionId);
+  }
+  if (selectionId === "ord:cancel") return cancelExistingOrder(phone, name, s);
   if (selectionId === "addr:new") {
     s.awaiting = "address"; state.set(phone, s);
     return wa.sendText(phone, `Naya delivery address bhejein 🏠\n(ghar/flat no, building, area)`);
@@ -588,6 +677,11 @@ async function handleMessage(phone, name, text, selectionId = null) {
   // ===== greeting / menu request =====
   if (/^(hi|hii|hello|hey|namaste|namaskar|menu|order|start|good\s*(morning|evening|afternoon))/i.test(lower) || lower === "") {
     if (!menuAvailable) return wa.sendText(phone, `Namaste ${name || ""}! 🙏 Aaj ka menu abhi update ho raha hai, thodi der mein bhejte hain.`);
+    // Already ordered today? Ask what they meant before starting a second one.
+    if (!s.cart.length) {
+      const existing = await todaysOrders(phone);
+      if (existing.length) return sendExistingOrderChoice(phone, name, existing);
+    }
     await wa.sendText(phone, `Namaste ${name || ""}! 🙏`);
     return sendMenuInteractive(phone, m);
   }
