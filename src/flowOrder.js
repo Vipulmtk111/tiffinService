@@ -6,10 +6,14 @@
  * in the send call, so there is no endpoint to host. The customer's answers come
  * back on the webhook as interactive.nfm_reply.response_json.
  *
- * WHATSAPP_FLOW_ID       the published (or draft) Flow, set by scripts/waFlow.js
- * WHATSAPP_FLOW_MODE     "draft" while the Flow is unpublished — a draft Flow
- *                        only opens for people with a role on the WABA, which is
- *                        how the owner can test before business verification.
+ * WHATSAPP_FLOW_ID       the Flow to send, set by scripts/waFlow.js
+ * WHATSAPP_FLOW_MODE     "draft" for an unpublished Flow, "published" otherwise
+ *
+ * NOTE: Flows need the business verified. Until then EVERY Flow send is refused
+ * with "(#139000) Blocked by Integrity" — publishing and draft mode alike, even
+ * though ordinary text and interactive messages go through fine. That is why the
+ * button/list path in logic.js remains the working experience and this module
+ * switches itself off on the first such refusal.
  */
 const cfg = require("./config");
 const menuParse = require("./menuParse");
@@ -20,8 +24,27 @@ const MAX_QTY = 5;
 const flowId = () => process.env.WHATSAPP_FLOW_ID || "";
 const flowMode = () => (process.env.WHATSAPP_FLOW_MODE || "published").toLowerCase();
 
-/** Is the Flow path configured at all? */
-function flowEnabled() { return !!flowId(); }
+// Some failures are permanent for the whole account, not per-message: an
+// unverified business gets "(#139000) Blocked by Integrity" on every Flow send,
+// published or draft. Retrying that on each incoming message would burn an API
+// round-trip and spam the log, so the first one switches the Flow path off for
+// this process and the button/list path takes over silently. Restart to re-arm.
+let disabledReason = null;
+const PERMANENT = new Set([
+  139000, // blocked by integrity (business verification / payment method)
+  131009, // parameter value not valid
+  100,    // bad flow id / malformed payload
+]);
+
+/** Is the Flow path configured AND not switched off by a permanent failure? */
+function flowEnabled() { return !!flowId() && !disabledReason; }
+
+/** Why the Flow path is off, for /health and diagnostics. */
+function flowStatus() {
+  if (!flowId()) return { enabled: false, reason: "WHATSAPP_FLOW_ID not set" };
+  if (disabledReason) return { enabled: false, reason: disabledReason };
+  return { enabled: true, id: flowId(), mode: flowMode() };
+}
 
 /** Menu model -> the data the Flow screen renders. */
 function buildFlowData(m, address = "") {
@@ -54,7 +77,7 @@ function buildFlowData(m, address = "") {
  */
 async function sendOrderFlow(to, rows, address = "") {
   const id = flowId();
-  if (!id) return null;
+  if (!id || disabledReason) return null; // guard here too, not just in the caller
   const m = menuParse.fromSheetRows(rows || []);
   if (!menuParse.isTiffinMenu(m)) return null; // extras-only day: list path is fine
 
@@ -90,7 +113,21 @@ async function sendOrderFlow(to, rows, address = "") {
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(`WA ${res.status}: ${JSON.stringify(data)}`);
+    if (!res.ok) {
+      const e = data.error || {};
+      if (PERMANENT.has(e.code)) {
+        disabledReason = `${e.code}: ${e.error_data?.details || e.message}`;
+        console.error(
+          `[flow] disabled for this run — ${disabledReason}\n` +
+          `[flow] falling back to the button/list ordering path.` +
+          (e.code === 139000
+            ? `\n[flow] WhatsApp Flows need the business verified; until then this is expected.`
+            : ""));
+      } else {
+        console.error(`[flow] send failed (${res.status}):`, JSON.stringify(data).slice(0, 200));
+      }
+      return null;
+    }
     console.log(`[out -> ${to}] (flow ${id}${flowMode() === "draft" ? " draft" : ""})`);
     return data;
   } catch (err) {
@@ -146,4 +183,4 @@ function parseFlowReply(response, rows) {
   return { items, address: String(response.address || "").trim() };
 }
 
-module.exports = { flowEnabled, buildFlowData, sendOrderFlow, parseFlowReply };
+module.exports = { flowEnabled, flowStatus, buildFlowData, sendOrderFlow, parseFlowReply };

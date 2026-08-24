@@ -3,6 +3,7 @@ const cfg = require("./config");
 const { handleMessage, handleFlowOrder } = require("./logic");
 const { handleOwner } = require("./ownerCommands");
 const { startJobs } = require("./jobs");
+const { flowStatus } = require("./flowOrder");
 
 const app = express();
 app.use(express.json());
@@ -12,7 +13,7 @@ let lastWebhookAt = null;
 const seenIds = new Set(); // webhook dedupe (Meta retries)
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, uptimeSec: Math.round((Date.now() - startedAt) / 1000), lastWebhookAt });
+  res.json({ ok: true, uptimeSec: Math.round((Date.now() - startedAt) / 1000), lastWebhookAt, flow: flowStatus() });
 });
 
 // Meta webhook verification handshake
