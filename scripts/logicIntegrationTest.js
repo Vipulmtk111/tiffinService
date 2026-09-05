@@ -218,10 +218,10 @@ EXTRA
   ok("'aur add karein' goes straight back to step 1, no extra hop",
     last(C2).type === "list" && (last(C2).sections || []).flatMap((x) => x.rows).some((r) => /^c:\d+$/.test(r.id)));
 
-  ok("reopened step 1 shows the running cart", /Abhi tak/.test(last(C2).body || ""));
+  ok("reopened step 1 shows the running cart", /So far/.test(last(C2).body || ""));
   const reopened = (last(C2).sections || []).flatMap((x) => x.rows);
   ok("the row already in the cart carries a ✅",
-    reopened.some((r) => r.id === "c:2" && r.title.startsWith("✅") && /order mein/.test(r.description)));
+    reopened.some((r) => r.id === "c:2" && r.title.startsWith("✅") && /in order/.test(r.description)));
   ok("rows not in the cart stay unticked and indented",
     reopened.filter((r) => r.id !== "c:2").every((r) => !r.title.startsWith("✅") && /^  • /.test(r.title)));
   ok("price is indented past the bullet, under the item text",
@@ -417,7 +417,7 @@ INCLUDED
   await handleOwner("Haan bhai, kal subah tak ho jayega", null, fwd.id);
   ok("owner's swipe-reply is delivered to the customer who asked",
     out.some((m) => m.to === C7 && /kal subah tak/.test(m.text || "")));
-  ok("owner is told it was sent", out.some((m) => m.to === OWNER && /bhej diya/.test(m.text || "")));
+  ok("owner is told it was sent", out.some((m) => m.to === OWNER && /sent your reply/.test(m.text || "")));
 
   reset();
   await handleOwner("r ₹75 per tiffin bulk rate", null, null);
@@ -458,7 +458,7 @@ INCLUDED
   await logic.handleMessage(C8, "Dev", "", "c:0");
   await logic.handleMessage(C8, "Dev", "", "review");
   ok("review says it is adding to the existing order",
-    new RegExp("purane order #" + first.id).test(last(C8).body || ""));
+    new RegExp("earlier order #" + first.id).test(last(C8).body || ""));
   reset();
   await logic.handleMessage(C8, "Dev", "", "submit");
   ok("no second order row is created", orders.length === before);

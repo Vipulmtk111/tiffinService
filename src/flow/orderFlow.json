@@ -3,17 +3,17 @@
   "screens": [
     {
       "id": "ORDER",
-      "title": "Aaj ka order",
+      "title": "Today's order",
       "terminal": true,
       "success": true,
       "data": {
         "heading": {
           "type": "string",
-          "__example__": "Tiffin ₹80 · Saath mein: Dal Bhat, Fryms"
+          "__example__": "Tiffin ₹80 · Includes: Dal Bhat, Fryms"
         },
         "sabji_label": {
           "type": "string",
-          "__example__": "Sabji (koi 1 chunein)"
+          "__example__": "Sabji (choose 1)"
         },
         "sabji_options": {
           "type": "array",
@@ -31,7 +31,7 @@
           ]
         },
         "bread_visible": { "type": "boolean", "__example__": true },
-        "bread_label": { "type": "string", "__example__": "Roti / Thepla (koi 1)" },
+        "bread_label": { "type": "string", "__example__": "Roti / Thepla (choose 1)" },
         "bread_options": {
           "type": "array",
           "items": {
@@ -111,7 +111,7 @@
               {
                 "type": "CheckboxGroup",
                 "name": "extras",
-                "label": "Extra items (jitne chahein)",
+                "label": "Extras (as many as you like)",
                 "data-source": "${data.extra_options}",
                 "visible": "${data.extras_visible}",
                 "required": false
@@ -119,7 +119,7 @@
               {
                 "type": "Dropdown",
                 "name": "qty",
-                "label": "Kitne tiffin?",
+                "label": "How many tiffins?",
                 "data-source": "${data.qty_options}",
                 "required": true
               },
@@ -129,11 +129,11 @@
                 "label": "Delivery address",
                 "input-type": "text",
                 "required": true,
-                "helper-text": "Ghar/flat no, building, area"
+                "helper-text": "House/flat no, building, area"
               },
               {
                 "type": "Footer",
-                "label": "Order confirm karein",
+                "label": "Confirm order",
                 "on-click-action": {
                   "name": "complete",
                   "payload": {

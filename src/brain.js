@@ -82,7 +82,7 @@ async function freeform(prompt) {
   for (const p of providers) {
     try {
       return await chatCompletion(p.base, p.key, p.model, [
-        { role: "system", content: "You are a concise assistant for a tiffin shop owner. Answer briefly in Hinglish." },
+        { role: "system", content: "You are a concise assistant for a tiffin shop owner. Answer briefly in English." },
         { role: "user", content: prompt },
       ]);
     } catch { /* try next */ }
@@ -103,7 +103,7 @@ async function freeform(prompt) {
 async function customerAnswer(question, facts) {
   const menuLine = (facts.snacks || []).map((s) => `${s.item} ₹${s.price}`).join(", ") || "not set yet";
   const system = `You are the friendly WhatsApp assistant for "${facts.shopName}", an Indian tiffin & snacks home-kitchen. ` +
-    `Answer the customer's question in ONE or TWO short lines, in the SAME language they used (Hindi, English or Hinglish). Warm, casual, use an emoji or two.\n` +
+    `Answer the customer's question in ONE or TWO short lines, in English. Warm, casual, use an emoji or two.\n` +
     `Use ONLY these facts — never invent items, prices, or promises:\n` +
     `- Today's menu (item ₹price): ${menuLine}\n` +
     `- Order cutoff for today: ${facts.orderCutoff}. Delivery: ${facts.deliveryNote}, free.\n` +

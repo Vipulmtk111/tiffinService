@@ -28,20 +28,20 @@ const optLabel = menuParse.optDisplay;
  */
 function renderMenuModel(m, { cta = false } = {}) {
   const b = cfg.biz;
-  let out = `🍱 *${b.shopName}* — aaj ka menu\n`;
+  let out = `🍱 *${b.shopName}* — today's menu\n`;
 
   if (menuParse.isTiffinMenu(m)) {
     const price = m.tiffinPrice != null ? m.tiffinPrice : b.tiffinPrice;
     out += `\n*TIFFIN — ₹${price}*\n`;
-    for (const g of m.groups) out += `• ${g.name} (koi 1): ${g.options.map(optLabel).join(" / ")}\n`;
-    if (m.included.length) out += `• Saath mein: ${m.included.map(optLabel).join(", ")}\n`;
+    for (const g of m.groups) out += `• ${g.name} (choose 1): ${g.options.map(optLabel).join(" / ")}\n`;
+    if (m.included.length) out += `• Included: ${m.included.map(optLabel).join(", ")}\n`;
   }
 
   if (m.extras.length) {
     out += `\n*EXTRA*\n` + m.extras.map((e) => `• ${e.name} — ₹${e.price}`).join("\n") + "\n";
   }
 
-  if (cta) out += `\nOrder karne ke liye niche button dabayein 👇`;
+  if (cta) out += `\nTap the button below to order 👇`;
   return out;
 }
 
@@ -91,8 +91,8 @@ async function sendMenuInteractive(phone, m, s = null) {
   if (comboListFits(m)) return sendComboList(phone, m, s);
 
   // Too many combinations for one list -> ask group by group.
-  const buttons = [{ id: "t:start", title: "🍱 Tiffin order" }];
-  if (m.extras.length) buttons.push({ id: "x:list", title: "➕ Extra items" });
+  const buttons = [{ id: "t:start", title: "🍱 Order tiffin" }];
+  if (m.extras.length) buttons.push({ id: "x:list", title: "➕ Extras" });
   return wa.sendButtons(phone, { body: renderMenuModel(m, { cta: true }), buttons });
 }
 
@@ -115,7 +115,7 @@ async function sendMenuInteractive(phone, m, s = null) {
 async function sendComboList(phone, m, s = null) {
   const price = m.tiffinPrice != null ? m.tiffinPrice : cfg.biz.tiffinPrice;
   const combos = buildCombos(m);
-  const incl = m.included.length ? `\n🍚 Har tiffin ke saath: ${m.included.map(menuParse.optDisplay).join(", ")}` : "";
+  const incl = m.included.length ? `\n🍚 Every tiffin includes: ${m.included.map(menuParse.optDisplay).join(", ")}` : "";
   const sections = [];
 
   // What's already in the cart, so rows can carry a ✅ instead of looking unpicked.
@@ -127,7 +127,7 @@ async function sendComboList(phone, m, s = null) {
     return {
       id,
       title: qty ? `✅ ${label}` : `  • ${label}`,
-      description: qty ? `    ₹${rupees} · ${qty}× order mein` : `    ₹${rupees}`,
+      description: qty ? `    ₹${rupees} · ${qty} in order` : `    ₹${rupees}`,
     };
   };
 
@@ -152,17 +152,17 @@ async function sendComboList(phone, m, s = null) {
   // and a list is a single radio group, so any other row would move the
   // selection off the tiffin. Extras follow automatically as step 2.
   const extrasNote = m.extras.length
-    ? `\n\n➕ Extra step 2 mein: ${m.extras.map((e) => `${e.name} ₹${e.price}`).join(", ")}`
+    ? `\n\n➕ Extras come in step 2: ${m.extras.map((e) => `${e.name} ₹${e.price}`).join(", ")}`
     : "";
 
   const cart = s && s.cart.length
-    ? `\n\n🧾 Abhi tak: ${s.cart.map((i) => `${i.qty}× ${i.name}`).join(", ")}`
+    ? `\n\n🧾 So far: ${s.cart.map((i) => `${i.qty}× ${i.name}`).join(", ")}`
     : "";
 
   return wa.sendList(phone, {
-    header: "Aaj ka menu 🍱",
-    body: `🍱 *${cfg.biz.shopName}*\n\n*Step 1 — Tiffin chunein (₹${price})*${incl}${extrasNote}${cart}`,
-    buttonText: "Tiffin chunein 🍱",
+    header: "Today's menu 🍱",
+    body: `🍱 *${cfg.biz.shopName}*\n\n*Step 1 — Choose your tiffin (₹${price})*${incl}${extrasNote}${cart}`,
+    buttonText: "Choose tiffin 🍱",
     sections,
   });
 }
@@ -202,11 +202,11 @@ async function sendExtrasToggle(phone, m, s) {
   const picked = m.extras.some((e) => qtyOf(e.name) > 0);
 
   const prompt = picked
-    ? (rest.length ? `\u2795 Aur chahiye? ${restLine}` : "\u2795 Saare extra add ho gaye")
-    : `*Step 2 \u2014 Extra chahiye?* (optional)\n${restLine}`;
+    ? (rest.length ? `\u2795 Add more? ${restLine}` : "\u2795 All extras added")
+    : `*Step 2 \u2014 Any extras?* (optional)\n${restLine}`;
 
   return wa.sendButtons(phone, {
-    body: `\ud83e\uddfe *Aapka order*\n${chosen}\n*Total: \u20b9${cartTotal(cart)}*\n\n${prompt}`,
+    body: `\ud83e\uddfe *Your order*\n${chosen}\n*Total: \u20b9${cartTotal(cart)}*\n\n${prompt}`,
     buttons: [
       ...m.extras.map((e, i) => {
         const q = qtyOf(e.name);
@@ -215,7 +215,7 @@ async function sendExtrasToggle(phone, m, s) {
           title: q ? `\u2611 ${e.name}` : `\u2610 ${e.name}`,
         };
       }),
-      { id: "review", title: picked ? "\u2705 Aage badhein" : "\u23ed\ufe0f Nahi chahiye" },
+      { id: "review", title: picked ? "\u2705 Done, review" : "\u23ed\ufe0f Skip extras" },
     ],
   });
 }
@@ -226,17 +226,16 @@ async function sendExtras(phone, m, s) {
 }
 
 async function sendExtrasList(phone, m, body, s = null) {
-  if (!m.extras.length) return wa.sendText(phone, `Aaj koi extra item nahi hai 🙏`);
+  if (!m.extras.length) return wa.sendText(phone, `No extras available today 🙏`);
   const inCart = new Map((s?.cart || []).map((i) => [i.name, i.qty]));
   const tiffin = (s?.cart || []).filter((i) => i.name.startsWith("Tiffin"));
 
   return wa.sendList(phone, {
-    header: "Extra items ➕",
+    header: "Extras ➕",
     body: body || (tiffin.length
-      ? `✅ Aapka tiffin order mein hai:\n${tiffin.map((i) => `• ${i.qty}× ${i.name}`).join("\n")}\n\nExtra add karein — tiffin waise ka waisa rahega 👇`
-      : `Extra mein kya lenge? 👇
-(☑ = order mein hai · dobara tap karne se hat jayega)`),
-    buttonText: "Extra chunein ➕",
+      ? `✅ Your tiffin is in the order:\n${tiffin.map((i) => `• ${i.qty}× ${i.name}`).join("\n")}\n\nAdd extras — your tiffin stays as it is 👇`
+      : `Which extras would you like? 👇\n(tap to add \u00b7 tap again to remove)`),
+    buttonText: "Choose extras ➕",
     sections: [{
       title: "➕ EXTRA",
       rows: m.extras.map((e, i) => {
@@ -245,8 +244,8 @@ async function sendExtrasList(phone, m, body, s = null) {
           id: `x:${i}`,
           title: line ? `☑ ${e.name}` : `☐ ${e.name}`,
           description: line
-            ? `    ₹${e.price} · tap karke hatayein`
-            : `    ₹${e.price} · tap karke add karein`,
+            ? `    ₹${e.price} · tap to remove`
+            : `    ₹${e.price} · tap to add`,
         };
       }),
     }],
@@ -260,7 +259,7 @@ async function askGroup(phone, s, m) {
 
   const gi = s.groupIdx;
   const chosen = s.picks.map(optLabel).join(" + ");
-  const body = `${chosen ? `✅ ${chosen}\n\n` : ""}*${g.name}* — koi 1 chunein 👇`;
+  const body = `${chosen ? `✅ ${chosen}\n\n` : ""}*${g.name}* — choose 1 👇`;
 
   // Up to 3 options fit as buttons; more need a list.
   if (g.options.length <= 3) {
@@ -278,9 +277,9 @@ async function askGroup(phone, s, m) {
 async function askTiffinQty(phone, s, m) {
   const price = m.tiffinPrice != null ? m.tiffinPrice : cfg.biz.tiffinPrice;
   s.awaiting = "tqty"; state.set(phone, s);
-  const incl = m.included.length ? `\nSaath mein: ${m.included.map(optLabel).join(", ")}` : "";
+  const incl = m.included.length ? `\nIncluded: ${m.included.map(optLabel).join(", ")}` : "";
   return wa.sendButtons(phone, {
-    body: `🍱 *${menuParse.comboLabel(s.picks)}*${incl}\n₹${price} per tiffin\n\nKitne tiffin chahiye?\n(ya number type karein)`,
+    body: `🍱 *${menuParse.comboLabel(s.picks)}*${incl}\n₹${price} per tiffin\n\nHow many tiffins?`,
     buttons: [{ id: "t:qty:1", title: "1" }, { id: "t:qty:2", title: "2" }, { id: "t:qty:3", title: "3" }],
   });
 }
@@ -336,22 +335,22 @@ async function sendExistingOrderChoice(phone, name, orders) {
   const lines = orders.map((o) =>
     `#${o.id} \u2014 ${o.items.map((i) => `${i.qty}\u00d7 ${i.name}`).join(", ")} \u2014 \u20b9${o.amount}`).join("\n");
   return wa.sendButtons(phone, {
-    body: `Namaste ${name || ""}! \ud83d\ude4f\n\n` +
-      `Aaj ka aapka order pehle se hai:\n${lines}\n\n` +
-      `Kya karna chahenge?`,
+    body: `Hello ${name || ""}! \ud83d\ude4f\n\n` +
+      `You already have an order today:\n${lines}\n\n` +
+      `What would you like to do?`,
     buttons: [
-      { id: "ord:add", title: "\u2795 Isme aur add" },
-      { id: "ord:new", title: "\ud83c\udd95 Alag naya order" },
-      { id: "ord:cancel", title: "\u274c Cancel karein" },
+      { id: "ord:add", title: "\u2795 Add to it" },
+      { id: "ord:new", title: "\ud83c\udd95 New order" },
+      { id: "ord:cancel", title: "\u274c Cancel it" },
     ],
   });
 }
 
 async function forwardToOwner(phone, name, text) {
   const res = await wa.sendText(cfg.biz.ownerPhone,
-    `👤 *${name || phone}* ne pucha:\n"${text}"\n\n` +
-    `↩️ Is message pe reply karein — seedha customer ko chala jayega.\n` +
-    `(ya "r <jawab>" bhejein)`);
+    `👤 *${name || phone}* asked:\n"${text}"\n\n` +
+    `↩️ Reply to this message — it goes straight to the customer.\n` +
+    `(or send "r <your reply>")`);
   rememberForward(res?.messages?.[0]?.id, phone, name);
 }
 
@@ -368,11 +367,11 @@ async function replyToCustomer(target, text) {
  * card, so a returning customer's whole order is two taps: pick, confirm.
  */
 async function reviewOrSubmit(phone, name, s) {
-  if (!s.cart.length) return wa.sendText(phone, `Cart khali hai 🙂 "menu" likh kar order shuru karein.`);
+  if (!s.cart.length) return wa.sendText(phone, `Your cart is empty 🙂 Send "menu" to start an order.`);
   const customer = await sheets.getCustomer(phone);
   if (!customer || !customer.address) {
     s.awaiting = "address"; state.set(phone, s);
-    return wa.sendText(phone, `${cartSummary(s.cart)}\nTotal: ₹${cartTotal(s.cart)} 👍\n\nAapka delivery address bhejein (ghar/flat no, building, area) 🏠`);
+    return wa.sendText(phone, `${cartSummary(s.cart)}\nTotal: ₹${cartTotal(s.cart)} 👍\n\nPlease send your delivery address (house/flat no, building, area) 🏠`);
   }
   s.awaiting = "confirm"; state.set(phone, s);
   const m = menuParse.fromSheetRows(await sheets.getMenu());
@@ -380,8 +379,8 @@ async function reviewOrSubmit(phone, name, s) {
     body: renderOrderPanel(s, m, customer.address),
     buttons: [
       { id: "submit", title: "✅ Confirm order" },
-      { id: "addr:new", title: "✏️ Address badlein" },
-      { id: "add_more", title: "➕ Aur add karein" },
+      { id: "addr:new", title: "✏️ Change address" },
+      { id: "add_more", title: "➕ Add more" },
     ],
   });
 }
@@ -399,8 +398,8 @@ function renderOrderPanel(s, m, address) {
   const lines = s.cart.map((i) => `\u2705 ${i.qty}\u00d7 ${i.name} \u2014 \u20b9${i.price * i.qty}`).join("\n");
   // Extras not ordered are deliberately absent: this screen is the order, and
   // listing the rest with empty boxes made customers think it was asking again.
-  const addNote = s.appendTo ? `\n(purane order #${s.appendTo.id} mein add ho raha hai)` : "";
-  return `\ud83e\uddfe *Aapka order*${addNote}\n\n${lines}\n\u2014 \u2014 \u2014\n*Total: \u20b9${cartTotal(s.cart)}*\n\n` +
+  const addNote = s.appendTo ? `\n(adding to your earlier order #${s.appendTo.id})` : "";
+  return `\ud83e\uddfe *Your order*${addNote}\n\n${lines}\n\u2014 \u2014 \u2014\n*Total: \u20b9${cartTotal(s.cart)}*\n\n` +
     `\ud83d\udccd *Delivery address:*\n${address}`;
 }
 
@@ -411,7 +410,7 @@ async function placeOrder(phone, name, s) {
   // owner's delivery list with no way to recover it.
   if (!address) {
     s.awaiting = "address"; state.set(phone, s);
-    return wa.sendText(phone, `Order lagane se pehle delivery address chahiye 🏠\n(ghar/flat no, building, area)`);
+    return wa.sendText(phone, `We need a delivery address before placing the order 🏠\n(house/flat no, building, area)`);
   }
   const amount = cartTotal(s.cart);
 
@@ -431,11 +430,11 @@ async function placeOrder(phone, name, s) {
       state.delete(phone);
       // The kitchen list may already have gone out, so the owner must be told.
       await wa.sendText(cfg.biz.ownerPhone,
-        `➕ *Order update* — #${live.id}\n${customer?.name || name || phone}\n` +
-        `Naya: ${cartSummary(s.cart)}\nAb total: ₹${newAmount}`);
+        `➕ *Order updated* — #${live.id}\n${customer?.name || name || phone}\n` +
+        `Added: ${cartSummary(s.cart)}\nNew total: ₹${newAmount}`);
       return wa.sendText(phone,
-        `Order *#${live.id}* update ho gaya ✅\n\n${cartSummary(merged)}\n— — —\nTotal: ₹${newAmount}\n\n` +
-        `📍 *Delivery address:*\n${address}\n\nDhanyawad 🙂`);
+        `Order *#${live.id}* updated ✅\n\n${cartSummary(merged)}\n— — —\nTotal: ₹${newAmount}\n\n` +
+        `📍 *Delivery address:*\n${address}\n\nThank you 🙂`);
     }
     // The order vanished (cancelled elsewhere) — fall through and place a new one.
     s.appendTo = null;
@@ -447,19 +446,19 @@ async function placeOrder(phone, name, s) {
   });
   state.delete(phone);
   return wa.sendText(phone,
-    `Order confirm ✅ (#${id})\n\n${cartSummary(s.cart)}\n— — —\nTotal: ₹${amount}\n\n` +
+    `Order confirmed ✅ (#${id})\n\n${cartSummary(s.cart)}\n— — —\nTotal: ₹${amount}\n\n` +
     `📍 *Delivery address:*\n${address}\n\n` +
-    `Address galat ho toh abhi bata dein 🙏\nJald deliver ho jayega. Dhanyawad 🙂`);
+    `If the address is wrong, tell us now 🙏\nWe'll deliver soon. Thank you 🙂`);
 }
 
 /** "Isme aur add" / "Alag naya order" from the repeat-customer prompt. */
 async function chooseExistingOrder(phone, name, s, m, selectionId) {
   const existing = await todaysOrders(phone);
   if (selectionId === "ord:add") {
-    if (!existing.length) return wa.sendText(phone, `Aaj ka koi order nahi mila \ud83d\ude4f`);
+    if (!existing.length) return wa.sendText(phone, `No order found for today \ud83d\ude4f`);
     const target = existing[existing.length - 1];   // newest, if somehow several
     s.appendTo = { row: target.row, id: target.id };
-    await wa.sendText(phone, `Theek hai \u2014 order *#${target.id}* mein add kar rahe hain \ud83d\udc4d`);
+    await wa.sendText(phone, `Got it \u2014 adding to order *#${target.id}* \ud83d\udc4d`);
   } else {
     s.appendTo = null;
   }
@@ -472,20 +471,20 @@ async function chooseExistingOrder(phone, name, s, m, selectionId) {
 async function cancelExistingOrder(phone, name, s) {
   void s;
   const existing = await todaysOrders(phone);
-  if (!existing.length) return wa.sendText(phone, `Aaj ka koi order nahi mila \ud83d\ude4f`);
+  if (!existing.length) return wa.sendText(phone, `No order found for today \ud83d\ude4f`);
   const target = existing[existing.length - 1];
   await sheets.setOrderField(target.row, sheets.COL.status, "cancelled");
   state.delete(phone);
   await wa.sendText(cfg.biz.ownerPhone,
-    `\u274c *Order cancel* \u2014 #${target.id}\n${name || phone} \u2014 \u20b9${target.amount}`);
+    `\u274c *Order cancelled* \u2014 #${target.id}\n${name || phone} \u2014 \u20b9${target.amount}`);
   return wa.sendText(phone,
-    `Order *#${target.id}* cancel kar diya \u274c\nDobara order karne ke liye "menu" likhein \ud83d\ude4f`);
+    `Order *#${target.id}* has been cancelled \u274c\nSend "menu" whenever you want to order again \ud83d\ude4f`);
 }
 
 // ---------- interactive taps ----------
 /** Returns a promise when the tap was handled, or null to fall through to text. */
 function handleTap(phone, name, s, m, selectionId, menuAvailable) {
-  const notReady = () => wa.sendText(phone, `Menu abhi update ho raha hai 🙏`);
+  const notReady = () => wa.sendText(phone, `The menu is being updated 🙏`);
 
   if (selectionId === "t:start") {
     if (!menuAvailable) return notReady();
@@ -498,7 +497,7 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
     const [, , gi, oi] = selectionId.split(":");
     const group = m.groups[Number(gi)];
     const option = group?.options[Number(oi)];
-    if (!option) return wa.sendText(phone, `Ye option aaj available nahi 🙏`);
+    if (!option) return wa.sendText(phone, `That option isn't available today 🙏`);
     // Re-taps of an earlier group replace that pick instead of appending.
     s.picks = s.picks.slice(0, Number(gi));
     s.picks.push(option);
@@ -509,7 +508,7 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
 
   if (selectionId.startsWith("t:qty:")) {
     if (!menuAvailable) return notReady();
-    if (!s.picks.length) return wa.sendText(phone, `Pehle tiffin ke options chunein 🙏 "menu" likhein.`);
+    if (!s.picks.length) return wa.sendText(phone, `Please choose your tiffin options first 🙏 Send "menu".`);
     return addTiffinToCart(phone, name, s, m, Number(selectionId.slice(6)) || 1);
   }
 
@@ -521,7 +520,7 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
   if (/^x:\d+$/.test(selectionId)) {
     if (!menuAvailable) return notReady();
     const e = m.extras[Number(selectionId.slice(2))];
-    if (!e) return wa.sendText(phone, `Ye item aaj available nahi 🙏`);
+    if (!e) return wa.sendText(phone, `That item isn't available today 🙏`);
     // Plain on/off. Tap adds it, tap again removes it - nothing to learn.
     const at = s.cart.findIndex((i) => i.name === e.name);
     if (at < 0) {
@@ -543,7 +542,7 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
   if (/^c:\d+$/.test(selectionId)) {
     if (!menuAvailable) return notReady();
     const picks = buildCombos(m)[Number(selectionId.slice(2))];
-    if (!picks) return wa.sendText(phone, `Ye option aaj available nahi 🙏`);
+    if (!picks) return wa.sendText(phone, `That option isn't available today 🙏`);
     const price = m.tiffinPrice != null ? m.tiffinPrice : cfg.biz.tiffinPrice;
     addLine(s, comboCartName(picks), price);
     s.picks = []; s.groupIdx = 0; s.awaiting = null; state.set(phone, s);
@@ -557,20 +556,20 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
   if (selectionId === "ord:cancel") return cancelExistingOrder(phone, name, s);
   if (selectionId === "addr:new") {
     s.awaiting = "address"; state.set(phone, s);
-    return wa.sendText(phone, `Naya delivery address bhejein 🏠\n(ghar/flat no, building, area)`);
+    return wa.sendText(phone, `Please send the new delivery address 🏠\n(house/flat no, building, area)`);
   }
 
   if (selectionId === "add_more") return sendMenuInteractive(phone, m, s);
   if (selectionId === "add:tiffin") return sendMenuInteractive(phone, m, s);
   if (selectionId === "add:extra") return sendExtras(phone, m, s);
   if (selectionId === "review") return reviewOrSubmit(phone, name, s);
-  if (selectionId === "submit") return s.cart.length ? placeOrder(phone, name, s) : wa.sendText(phone, `Cart khali hai 🙂`);
+  if (selectionId === "submit") return s.cart.length ? placeOrder(phone, name, s) : wa.sendText(phone, `Your cart is empty 🙂`);
   if (selectionId === "edit") {
     s.cart = []; s.awaiting = null; s.picks = []; s.groupIdx = 0; s.lastLine = null;
     state.set(phone, s);
     return sendMenuInteractive(phone, m);
   }
-  if (selectionId === "cancel") { state.delete(phone); return wa.sendText(phone, `Order cancel ❌ Jab chahein order kar dena 🙏`); }
+  if (selectionId === "cancel") { state.delete(phone); return wa.sendText(phone, `Order cancelled ❌ Order again whenever you like 🙏`); }
   return null;
 }
 
@@ -593,19 +592,19 @@ async function sendMenuTo(phone, rows, address = null) {
  * build up — validate it, save the address, and place the order.
  */
 async function handleFlowOrder(phone, name, response) {
-  if (ordersPaused) return wa.sendText(phone, `🙏 Aaj shop band hai. Kal milte hain!`);
+  if (ordersPaused) return wa.sendText(phone, `🙏 We're closed today. See you tomorrow!`);
 
   const rows = await sheets.getMenu();
-  if (!rows || !rows.length) return wa.sendText(phone, `Menu abhi update ho raha hai 🙏 thodi der mein try karein.`);
+  if (!rows || !rows.length) return wa.sendText(phone, `The menu is being updated 🙏 please try again shortly.`);
 
   const parsed = flowOrder.parseFlowReply(response, rows);
   if (!parsed) {
     console.error("[flow] could not read the submission:", JSON.stringify(response));
-    return wa.sendText(phone, `Order samajh nahi aaya 🙏 "menu" likh kar dobara try karein.`);
+    return wa.sendText(phone, `Sorry, we couldn't read that order 🙏 Send "menu" to try again.`);
   }
 
   const address = parsed.address;
-  if (!address) return wa.sendText(phone, `Delivery address chahiye 🏠 bhej dein, phir order lagata hun.`);
+  if (!address) return wa.sendText(phone, `We need a delivery address 🏠 Send it and I'll place the order.`);
   await sheets.upsertCustomer({ phone, name, address });
 
   const s = freshState();
@@ -619,7 +618,7 @@ async function handleMessage(phone, name, text, selectionId = null) {
   const b = cfg.biz;
   const s = state.get(phone) || freshState();
 
-  if (ordersPaused) return wa.sendText(phone, `🙏 Aaj shop band hai. Kal milte hain!`);
+  if (ordersPaused) return wa.sendText(phone, `🙏 We're closed today. See you tomorrow!`);
 
   const rows = await sheets.getMenu();
   const menuAvailable = !!(rows && rows.length);
@@ -656,23 +655,23 @@ async function handleMessage(phone, name, text, selectionId = null) {
   if (s.awaiting === "address") {
     const addr = text.trim();
     if (addr.length < 3) {
-      return wa.sendText(phone, `Address thoda pura likhein 🙏\n(ghar/flat no, building, area)`);
+      return wa.sendText(phone, `Please send a fuller address 🙏\n(house/flat no, building, area)`);
     }
     await sheets.upsertCustomer({ phone, name, address: addr });
     s.awaiting = null; state.set(phone, s);
-    await wa.sendText(phone, `Address save ho gaya ✅`);
+    await wa.sendText(phone, `Address saved ✅`);
     return reviewOrSubmit(phone, name, s);
   }
 
   // ===== greeting / menu request =====
   if (/^(hi|hii|hello|hey|namaste|namaskar|menu|order|start|good\s*(morning|evening|afternoon))/i.test(lower) || lower === "") {
-    if (!menuAvailable) return wa.sendText(phone, `Namaste ${name || ""}! 🙏 Aaj ka menu abhi update ho raha hai, thodi der mein bhejte hain.`);
+    if (!menuAvailable) return wa.sendText(phone, `Hello ${name || ""}! 🙏 Today's menu is being updated, we'll send it shortly.`);
     // Already ordered today? Ask what they meant before starting a second one.
     if (!s.cart.length) {
       const existing = await todaysOrders(phone);
       if (existing.length) return sendExistingOrderChoice(phone, name, existing);
     }
-    await wa.sendText(phone, `Namaste ${name || ""}! 🙏`);
+    await wa.sendText(phone, `Hello ${name || ""}! 🙏`);
     return sendMenuInteractive(phone, m);
   }
 
@@ -695,7 +694,7 @@ async function handleMessage(phone, name, text, selectionId = null) {
 
   // ===== confirm/cancel words =====
   if (/^(haan|yes|ok|theek|thik|done|confirm)$/i.test(lower) && s.cart.length) return reviewOrSubmit(phone, name, s);
-  if (/^(nahi|no|cancel)$/i.test(lower)) { state.delete(phone); return wa.sendText(phone, `Theek hai, cancel ❌ 🙏`); }
+  if (/^(nahi|no|cancel)$/i.test(lower)) { state.delete(phone); return wa.sendText(phone, `Cancelled ❌ 🙏`); }
 
   // ===== anything else -> LLM answers the QUESTION (never orders) =====
   const answer = await customerAnswer(text, {
@@ -706,11 +705,11 @@ async function handleMessage(phone, name, text, selectionId = null) {
   });
   if (answer && answer !== "FORWARD") {
     await wa.sendText(phone, answer);
-    if (menuAvailable) return wa.sendText(phone, `Order karne ke liye "menu" likhein 🍱`);
+    if (menuAvailable) return wa.sendText(phone, `Send "menu" to place an order 🍱`);
     return;
   }
   await forwardToOwner(phone, name, text);
-  return wa.sendText(phone, `Ek minute 🙏 bhaiya ko bata raha hun, woh reply karenge.`);
+  return wa.sendText(phone, `One moment 🙏 I've passed this to the owner, they'll reply.`);
 }
 
 module.exports = {

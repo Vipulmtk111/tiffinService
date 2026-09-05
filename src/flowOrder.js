@@ -51,15 +51,15 @@ function buildFlowData(m, address = "") {
   const price = m.tiffinPrice != null ? m.tiffinPrice : cfg.biz.tiffinPrice;
   const opts = (list) => list.map((o, i) => ({ id: String(i), title: menuParse.optDisplay(o), description: "" }));
 
-  const incl = m.included.length ? ` · Saath mein: ${m.included.map(menuParse.optDisplay).join(", ")}` : "";
+  const incl = m.included.length ? ` · Includes: ${m.included.map(menuParse.optDisplay).join(", ")}` : "";
   const [sabji, bread] = m.groups;
 
   return {
     heading: `Tiffin ₹${price}${incl}`,
-    sabji_label: sabji ? `${sabji.name} (koi 1 chunein)` : "Tiffin",
+    sabji_label: sabji ? `${sabji.name} (choose 1)` : "Tiffin",
     sabji_options: sabji ? opts(sabji.options) : [{ id: "0", title: "Tiffin", description: `₹${price}` }],
     bread_visible: !!bread,
-    bread_label: bread ? `${bread.name} (koi 1)` : "—",
+    bread_label: bread ? `${bread.name} (choose 1)` : "—",
     // A hidden RadioButtonsGroup still needs a non-empty data-source.
     bread_options: bread ? opts(bread.options) : [{ id: "0", title: "—", description: "" }],
     extras_visible: m.extras.length > 0,
@@ -88,8 +88,8 @@ async function sendOrderFlow(to, rows, address = "") {
     type: "interactive",
     interactive: {
       type: "flow",
-      header: { type: "text", text: "Aaj ka menu 🍱" },
-      body: { text: `🍱 *${cfg.biz.shopName}*\nTiffin ₹${price}\n\nEk hi form mein apna order bhej dein — sabji, roti, extra aur address.` },
+      header: { type: "text", text: "Today's menu 🍱" },
+      body: { text: `🍱 *${cfg.biz.shopName}*\nTiffin ₹${price}\n\nSend your whole order in one form — sabji, bread, extras and address.` },
       footer: { text: "Order cutoff: " + cfg.biz.orderCutoff },
       action: {
         name: "flow",
@@ -97,7 +97,7 @@ async function sendOrderFlow(to, rows, address = "") {
           flow_message_version: "3",
           flow_token: `order-${to}-${rows.length}`,
           flow_id: id,
-          flow_cta: "Order karein 🍱",
+          flow_cta: "Order now 🍱",
           flow_action: "navigate",
           ...(flowMode() === "draft" ? { mode: "draft" } : {}),
           flow_action_payload: { screen: "ORDER", data: buildFlowData(m, address) },

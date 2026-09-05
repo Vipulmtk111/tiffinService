@@ -18,21 +18,21 @@ async function menuReminder() {
   const owner = cfg.biz.ownerPhone;
   if (menu && menu.length) {
     return wa.sendText(owner,
-      `🌅 Good morning! Aaj ka menu already set hai:\n\n${renderMenu(menu)}\n\n` +
-      `Customers ko dobara bhejne ke liye "broadcast" bhejein.\nBadalna ho toh naya menu paste kar dein.`);
+      `🌅 Good morning! Today's menu is already set:\n\n${renderMenu(menu)}\n\n` +
+      `Send "broadcast" to resend it to customers.\nTo change it, just paste a new menu.`);
   }
   return wa.sendText(owner,
-    `🌅 Good morning! Aaj ka menu abhi set nahi hua.\n\n` +
-    `Bas apna aaj ka menu paste kar dein 📋 Main draft bana ke confirm maangunga, phir customers ko bhej dunga. 🍱\n\n` +
-    `Format dekhne ke liye "format" bhejein.`);
+    `🌅 Good morning! Today's menu isn't set yet.\n\n` +
+    `Just paste today's menu 📋 I'll build a draft, ask you to confirm, then send it to customers. 🍱\n\n` +
+    `Send "format" to see the layout.`);
 }
 
 // 1) Menu broadcast to all customers (individual messages, ~1/sec throttle)
 async function broadcastMenu({ force = false } = {}) {
   const menu = await sheets.getMenu();
-  if (!menu || !menu.length) return wa.sendText(cfg.biz.ownerPhone, `⚠️ Aaj ka menu set nahi hai! Apna menu paste kar dein.`);
+  if (!menu || !menu.length) return wa.sendText(cfg.biz.ownerPhone, `⚠️ Today's menu isn't set! Please paste your menu.`);
   if (!force && alreadyBroadcast()) {
-    return wa.sendText(cfg.biz.ownerPhone, `ℹ️ Aaj ka menu already broadcast ho chuka hai. Dobara bhejne ke liye "broadcast" bhejein.`);
+    return wa.sendText(cfg.biz.ownerPhone, `ℹ️ Today's menu has already gone out. Send "broadcast" to send it again.`);
   }
   const customers = await sheets.getAllCustomers();
   let sent = 0;
@@ -60,12 +60,12 @@ async function kitchenList() {
   const kitchenLines = Object.entries(totals).map(([k, v]) => `${k} ×${v}`).join("\n") || "—";
   const revenue = orders.reduce((n, o) => n + o.amount, 0);
 
-  let msg = `📋 AAJ KA ORDER (${b.orderCutoff})\nTotal orders: ${orders.length} | Revenue: ₹${revenue}\n\n👨‍🍳 KITCHEN (banana hai):\n${kitchenLines}\n\n🛵 DELIVERY LIST:`;
+  let msg = `📋 TODAY'S ORDERS (${b.orderCutoff})\nTotal orders: ${orders.length} | Revenue: ₹${revenue}\n\n👨‍🍳 KITCHEN (to cook):\n${kitchenLines}\n\n🛵 DELIVERY LIST:`;
   orders.forEach((o, i) => {
     const items = o.items.map((it) => `${it.qty}× ${it.name}`).join(", ");
     msg += `\n${i + 1}. ${o.name || o.phone} — ${items} — ₹${o.amount}\n   📍 ${o.address || "address?"} | ${o.payment === "paid" ? "✅ paid" : "💸 pending"}`;
   });
-  if (!orders.length) msg += "\n(koi order nahi aaj)";
+  if (!orders.length) msg += "\n(no orders today)";
   await wa.sendText(cfg.biz.ownerPhone, msg);
 }
 
@@ -76,10 +76,10 @@ async function paymentRequests() {
   for (const o of unpaid) {
     const upiLink = `upi://pay?pa=${encodeURIComponent(b.upiId)}&pn=${encodeURIComponent(b.shopName)}&am=${o.amount}&cu=INR`;
     const items = o.items.map((it) => `${it.qty}× ${it.name}`).join(", ");
-    await wa.sendText(o.phone, `Aaj ka bill 🍱\n${items} = ₹${o.amount}\nUPI: ${b.upiId}\n${upiLink}\nPay karke "done" bhej dein 🙏`);
+    await wa.sendText(o.phone, `Today's bill 🍱\n${items} = ₹${o.amount}\nUPI: ${b.upiId}\n${upiLink}\nSend "done" once you've paid 🙏`);
     await sleep(1100);
   }
-  if (unpaid.length) await wa.sendText(b.ownerPhone, `💸 Payment request bheja — ${unpaid.length} customers.`);
+  if (unpaid.length) await wa.sendText(b.ownerPhone, `💸 Payment requests sent — ${unpaid.length} customers.`);
 }
 
 // 4) One polite reminder next morning for yesterday's unpaid
@@ -87,7 +87,7 @@ async function paymentReminders() {
   const y = sheets.todayStr(new Date(Date.now() - 24 * 3600 * 1000));
   const unpaid = (await sheets.getOrders(y)).filter((o) => o.status === "confirmed" && o.payment === "pending");
   for (const o of unpaid) {
-    await wa.sendText(o.phone, `Namaste 🙏 kal ka ₹${o.amount} pending hai.\nUPI: ${cfg.biz.upiId}\nJab time mile pay kar dijiyega, dhanyawad 🙂`);
+    await wa.sendText(o.phone, `Hello 🙏 ₹${o.amount} from yesterday is still pending.\nUPI: ${cfg.biz.upiId}\nPay whenever you get a moment, thank you 🙂`);
     await sleep(1100);
   }
 }
@@ -108,8 +108,8 @@ async function dailySummary() {
 
   const pendList = pendingOrders.map((o) => `${o.name || o.phone} ₹${o.amount}`).join(", ") || "—";
   await wa.sendText(cfg.biz.ownerPhone,
-    `📊 AAJ KA HISAAB (${sheets.todayStr()})\nOrders: ${orders.length} | Items: ${totalItems} | Revenue: ₹${revenue}\nReceived: ₹${collected} ✅ | Pending: ₹${pending}\nPending log: ${pendList}` +
-    (top ? `\n🏆 Sabse zyada: ${top[0]} (${top[1]})` : ""));
+    `📊 TODAY'S SUMMARY (${sheets.todayStr()})\nOrders: ${orders.length} | Items: ${totalItems} | Revenue: ₹${revenue}\nReceived: ₹${collected} ✅ | Pending: ₹${pending}\nPending log: ${pendList}` +
+    (top ? `\n🏆 Best seller: ${top[0]} (${top[1]})` : ""));
 
   await sheets.appendDailyLog({
     date: sheets.todayStr(), totalOrders: orders.length, totalItems, revenue, collected, pending,
@@ -123,7 +123,7 @@ async function scheduledBroadcast() {
   if (alreadyBroadcast()) return; // owner already broadcast after setting menu
   const menu = await sheets.getMenu();
   if (menu && menu.length) return broadcastMenu();
-  await wa.sendText(cfg.biz.ownerPhone, `⏰ Reminder: aaj ka menu abhi tak set nahi hua. Apna menu paste kar dein — customers wait kar rahe hain. 🍱`);
+  await wa.sendText(cfg.biz.ownerPhone, `⏰ Reminder: today's menu still isn't set. Paste your menu — customers are waiting. 🍱`);
 }
 
 function toCron(hhmm) { const [h, m] = hhmm.split(":"); return `${Number(m)} ${Number(h)} * * *`; }
