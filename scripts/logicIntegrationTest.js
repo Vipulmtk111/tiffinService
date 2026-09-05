@@ -487,6 +487,40 @@ INCLUDED
   ok("owner is told about the cancellation",
     out.some((mm) => mm.to === OWNER && /Order cancel/.test(mm.text || "")));
 
+  console.log("\n=== EXTRAS ARE ALWAYS SKIPPABLE ===");
+
+  // Two extras -> toggle buttons, which carry a Skip button.
+  const C9 = "919900000010";
+  customers.set(C9, { phone: C9, name: "Ravi", address: "2 Palm Road" });
+  reset();
+  await logic.handleMessage(C9, "Ravi", "", "c:0");
+  const twoExtras = last(C9);
+  ok("button path offers an explicit skip",
+    (twoExtras.buttons || []).some((b) => b.id === "review" && /Skip/i.test(b.title)));
+  reset();
+  await logic.handleMessage(C9, "Ravi", "", "review");
+  ok("skipping goes straight to the review with nothing extra added",
+    (last(C9).buttons || []).some((b) => b.id === "submit") && !/Dhokla/.test(last(C9).body || ""));
+
+  // Three or more extras -> a list, where the skip must be a ROW.
+  await handleOwner("SABJI (any 1)\n- Suki Bhaji\n- Sev Tameta\n\nBREAD (any 1)\n- Roti x5\n- Thepla x4\n\nINCLUDED\n- Dal Bhat\n\nEXTRA\n- Dhokla - 40\n- Samosa - 15\n- Khandvi - 50", null);
+  await handleOwner("", "menu_confirm");
+  const C10 = "919900000011";
+  customers.set(C10, { phone: C10, name: "Sara", address: "6 Rose Lane" });
+  reset();
+  await logic.handleMessage(C10, "Sara", "", "c:0");
+  const listStep = last(C10);
+  const listRows = (listStep.sections || []).flatMap((x) => x.rows);
+  ok("three extras fall back to a list", listStep.type === "list");
+  ok("the list carries a skip ROW, so nobody is forced to pick an extra",
+    listRows.some((r) => r.id === "review" && /Skip/i.test(r.title)));
+  ok("the list still fits WhatsApp's 10-row cap", listRows.length <= 10);
+
+  reset();
+  await logic.handleMessage(C10, "Sara", "", "review");
+  ok("tapping the skip row reaches the review",
+    (last(C10).buttons || []).some((b) => b.id === "submit"));
+
   console.log(`\n${fail === 0 ? "🎉 ALL PASS" : "⚠️  SOME FAILED"} — ${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
 })();

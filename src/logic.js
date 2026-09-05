@@ -230,25 +230,39 @@ async function sendExtrasList(phone, m, body, s = null) {
   const inCart = new Map((s?.cart || []).map((i) => [i.name, i.qty]));
   const tiffin = (s?.cart || []).filter((i) => i.name.startsWith("Tiffin"));
 
+  // Extras are optional, so there must always be a way out. The button path
+  // has a "Skip extras" button; a list has only rows, so the skip has to BE a
+  // row - otherwise a customer who wants nothing extra is stuck picking
+  // something or abandoning the order. It costs a row, so cap the extras at 9.
+  const canSkip = !!(s && s.cart.length);
+  const shown = canSkip ? m.extras.slice(0, MAX_ROWS - 1) : m.extras.slice(0, MAX_ROWS);
+
+  const rows = shown.map((e, i) => {
+    const chosen = inCart.has(e.name);
+    return {
+      id: `x:${i}`,
+      title: chosen ? `☑ ${e.name}` : `  ☐ ${e.name}`,
+      description: chosen
+        ? `    ₹${e.price} · tap to remove`
+        : `    ₹${e.price} · tap to add`,
+    };
+  });
+  if (canSkip) {
+    rows.push({
+      id: "review",
+      title: `  ⏭️ Skip extras`,
+      description: `    Nothing extra - go to review`,
+    });
+  }
+
   return wa.sendList(phone, {
     header: "Extras ➕",
     body: body || (tiffin.length
-      ? `✅ Your tiffin is in the order:\n${tiffin.map((i) => `• ${i.qty}× ${i.name}`).join("\n")}\n\nAdd extras — your tiffin stays as it is 👇`
-      : `Which extras would you like? 👇\n(tap to add \u00b7 tap again to remove)`),
+      ? `✅ Your tiffin is in the order:\n${tiffin.map((i) => `• ${i.qty}× ${i.name}`).join("\n")}\n\n` +
+        `Extras are optional - add any you want, or choose "Skip extras" 👇`
+      : `Which extras would you like? 👇\n(tap to add · tap again to remove)`),
     buttonText: "Choose extras ➕",
-    sections: [{
-      title: "➕ EXTRA",
-      rows: m.extras.map((e, i) => {
-        const line = (s?.cart || []).find((c) => c.name === e.name);
-        return {
-          id: `x:${i}`,
-          title: line ? `☑ ${e.name}` : `☐ ${e.name}`,
-          description: line
-            ? `    ₹${e.price} · tap to remove`
-            : `    ₹${e.price} · tap to add`,
-        };
-      }),
-    }],
+    sections: [{ title: "➕ EXTRA", rows }],
   });
 }
 
