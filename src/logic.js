@@ -220,9 +220,41 @@ async function sendExtrasToggle(phone, m, s) {
   });
 }
 
-/** Toggle buttons when they fit, otherwise the tick-marked list. */
+/**
+ * Step 2. Which surface depends on how many extras there are:
+ *   <= 2  every extra is its own toggle button, with Skip beside them
+ *   >= 3  a gate message: [Choose extras] [Skip extras], because a list can
+ *         only carry one CTA and burying the skip inside it forces the
+ *         customer into the very screen they wanted to avoid.
+ */
 async function sendExtras(phone, m, s) {
-  return extrasFitButtons(m) ? sendExtrasToggle(phone, m, s) : sendExtrasList(phone, m, null, s);
+  if (extrasFitButtons(m)) return sendExtrasToggle(phone, m, s);
+  return sendExtrasGate(phone, m, s);
+}
+
+/** [Choose extras] [Skip extras] - the skip never requires opening the list. */
+async function sendExtrasGate(phone, m, s) {
+  const cart = s?.cart || [];
+  const qtyOf = (nm) => (cart.find((i) => i.name === nm) || {}).qty || 0;
+  const chosen = cart.map((i) => `\u2705 ${i.qty}\u00d7 ${i.name} \u2014 \u20b9${i.price * i.qty}`).join("\n");
+  const picked = m.extras.some((e) => qtyOf(e.name) > 0);
+  const rest = m.extras.filter((e) => !qtyOf(e.name)).map((e) => `${e.name} \u20b9${e.price}`).join(" \u00b7 ");
+
+  return wa.sendButtons(phone, {
+    body: `\ud83e\uddfe *Your order*\n${chosen}\n*Total: \u20b9${cartTotal(cart)}*\n\n` +
+      (picked
+        ? (rest ? `\u2795 Add more? ${rest}` : `\u2795 All extras added`)
+        : `*Step 2 \u2014 Any extras?* (optional)\n${rest}`),
+    buttons: picked
+      ? [
+          { id: "x:list", title: "\u2795 Add more" },
+          { id: "review", title: "\u2705 Done, review" },
+        ]
+      : [
+          { id: "x:list", title: "\u2795 Choose extras" },
+          { id: "review", title: "\u23ed\ufe0f Skip extras" },
+        ],
+  });
 }
 
 async function sendExtrasList(phone, m, body, s = null) {
@@ -528,7 +560,9 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
 
   if (selectionId === "x:list") {
     if (!menuAvailable) return notReady();
-    return sendExtras(phone, m, s);
+    // "Choose extras" opens the actual list — not the dispatcher, which would
+    // send the gate again and leave the customer tapping in a circle.
+    return sendExtrasList(phone, m, null, s);
   }
 
   if (/^x:\d+$/.test(selectionId)) {
@@ -547,7 +581,11 @@ function handleTap(phone, name, s, m, selectionId, menuAvailable) {
     // Removing the last line empties the cart — go back to the menu, not a panel.
     if (!s.cart.length && !extrasFitButtons(m)) return sendMenuInteractive(phone, m, s);
     // With toggle buttons, stay on that message so ticking feels like a checkbox.
-    if (extrasFitButtons(m)) return sendExtrasToggle(phone, m, s);
+    // The extras STEP only exists for a tiffin menu. On an extras-only day the
+    // extras are the menu itself, so a tap goes straight to the review.
+    if (menuParse.isTiffinMenu(m)) {
+      return extrasFitButtons(m) ? sendExtrasToggle(phone, m, s) : sendExtrasGate(phone, m, s);
+    }
     return reviewOrSubmit(phone, name, s);
   }
 

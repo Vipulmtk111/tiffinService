@@ -509,12 +509,27 @@ INCLUDED
   customers.set(C10, { phone: C10, name: "Sara", address: "6 Rose Lane" });
   reset();
   await logic.handleMessage(C10, "Sara", "", "c:0");
-  const listStep = last(C10);
-  const listRows = (listStep.sections || []).flatMap((x) => x.rows);
-  ok("three extras fall back to a list", listStep.type === "list");
-  ok("the list carries a skip ROW, so nobody is forced to pick an extra",
+  const gate = last(C10);
+  ok("three extras give a BUTTON gate, not a list",
+    gate.type === "buttons");
+  ok("skip sits beside Choose extras - no need to open anything",
+    (gate.buttons || []).some((b) => b.id === "x:list" && /Choose extras/i.test(b.title)) &&
+    (gate.buttons || []).some((b) => b.id === "review" && /Skip/i.test(b.title)));
+
+  // The list behind "Choose extras" still has its own skip row as a second exit.
+  reset();
+  await logic.handleMessage(C10, "Sara", "", "x:list");
+  const listRows = (last(C10).sections || []).flatMap((x) => x.rows);
+  ok("the extras list itself also offers a skip row",
     listRows.some((r) => r.id === "review" && /Skip/i.test(r.title)));
   ok("the list still fits WhatsApp's 10-row cap", listRows.length <= 10);
+
+  // Adding one returns to the gate, so Done stays visible.
+  reset();
+  await logic.handleMessage(C10, "Sara", "", "x:0");
+  ok("adding an extra returns to the gate with a Done button",
+    last(C10).type === "buttons" &&
+    (last(C10).buttons || []).some((b) => b.id === "review" && /Done/i.test(b.title)));
 
   reset();
   await logic.handleMessage(C10, "Sara", "", "review");
